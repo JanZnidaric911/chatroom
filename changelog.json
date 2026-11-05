@@ -5,12 +5,9 @@
     "date": "2026-11-05",
     "title": "Names in rooms",
     "changes": [
-      "When you create or join a room you choose your name, and it is shown above the other person's messages",
-      "Names in a room must be different: if the name is already taken, you are asked to pick another one",
-      "\"Change my name\" in the room menu",
-      "The \"Saved\" popup now appears at the top of the chat, so it no longer covers the save buttons of the next files",
-      "New \"Open the Linoa website\" button in Settings",
-      "Small updates now get version numbers like v6.01 instead of a whole new version"
+      "Pick your name when you create or join a room",
+      "See who sent each message",
+      "Small fixes and improvements"
     ]
   },
   {
@@ -18,20 +15,16 @@
     "date": "2026-11-05",
     "title": "Works on any network",
     "changes": [
-      "Your devices now connect even when they are on different networks, e.g. phone on mobile data and PC on home Wi-Fi",
-      "When a direct connection is not possible, messages and files go through an encrypted relay automatically (shown as \"via relay\")",
-      "The relay cannot read anything: everything is end-to-end encrypted with your room code",
-      "When a direct connection becomes possible again, the app switches back to it on its own"
+      "Chat and send files even when your phone and PC are on different networks"
     ]
   },
   {
     "version": 5,
     "date": "2026-11-05",
-    "title": "Rooms work like a group",
+    "title": "Online status",
     "changes": [
-      "No more \"Waiting for other device\": you can use a room on its own, messages arrive whenever the other device is online",
-      "The room shows \"online\" or \"offline\" for the other device",
-      "The app now offers the new installer itself when there is one (for the Linoa name and icon on your desktop and home screen)"
+      "See when your other device is online",
+      "Use a room anytime, even when the other device is offline"
     ]
   },
   {
@@ -39,9 +32,8 @@
     "date": "2026-11-05",
     "title": "Hello, Linoa",
     "changes": [
-      "ChatRoom is now called Linoa, with a brand-new icon",
-      "Fixed the PC app repeatedly downloading the same update",
-      "Saved files now go to the Linoa folder in Downloads"
+      "ChatRoom is now Linoa, with a new icon",
+      "Bug fixes"
     ]
   },
   {
@@ -49,12 +41,10 @@
     "date": "2026-11-05",
     "title": "Big redesign",
     "changes": [
-      "Completely redesigned, modern look on PC and phone",
-      "Delete any single message, photo, video or file for everyone, right from the message",
-      "Save photos, videos and files with one tap on the download icon",
-      "See when the other person is typing",
-      "See photos, videos and files coming in while they are still being sent, with progress",
-      "Removed \"Clear chat for everyone\" so your history can't be wiped by accident"
+      "A fresh new look",
+      "Delete single messages for everyone",
+      "Save photos and files with one tap",
+      "See when someone is typing"
     ]
   },
   {
@@ -62,9 +52,8 @@
     "date": "2026-11-05",
     "title": "Delete & auto-update",
     "changes": [
-      "Delete messages for everyone or just for you",
-      "Select several messages at once",
-      "The app updates itself automatically when opened"
+      "Delete messages",
+      "Automatic updates"
     ]
   },
   {
@@ -72,10 +61,8 @@
     "date": "2026-11-05",
     "title": "First release",
     "changes": [
-      "Chat between PC and phone over any network",
-      "Send text, photos, videos and files in full quality",
-      "Rooms joined with a code",
-      "Messages queue while the other device is offline"
+      "Chat and share files between your PC and phone",
+      "Photos and videos in full quality"
     ]
   }
 ]
