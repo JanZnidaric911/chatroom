@@ -1,1 +1,1 @@
-window.CHATROOM_VERSION = 4;
+window.CHATROOM_VERSION = 5;

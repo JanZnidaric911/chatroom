@@ -570,6 +570,42 @@
     }
   }
 
+  // A newer INSTALLER exists (manifest.nativeLatest): in-app updates can't change the installed
+  // program's name/icon on the desktop or home screen, so offer to download the new installer.
+  // Shown at most once a day ("Later"), until the new installer is installed.
+  const LS_NATIVE_LATER = 'chatroom.update.nativeLater';
+  async function offerNativeInstaller(m) {
+    if (kind !== 'electron' && kind !== 'android') return;
+    const latest = Number((m.nativeLatest || {})[kind === 'electron' ? 'windows' : 'android']) || 0;
+    const nv = await nativeVersion();
+    if (!(latest > nv)) return;
+    const later = Number(ls.get(LS_NATIVE_LATER)) || 0;
+    if (Date.now() - later < DAY) return;
+    const url = kind === 'electron' ? m.exeUrl : m.apkUrl;
+    if (!url) return;
+    const u = ensureUi();
+    showPanel();
+    setBusy(false); setProgress(null);
+    u.notes.hidden = true;
+    setStatus(kind === 'electron'
+      ? 'A new version of the Linoa app is ready (new name and icon on your desktop and Start menu). Click Install to download the installer, then run it. Your chats are kept.'
+      : 'A new version of the Linoa app is ready (new name and icon on your home screen). Tap Install to download it, then open the downloaded file to install. Your chats are kept.');
+    u.act.textContent = 'Install';
+    u.act.hidden = false;
+    u.act.onclick = () => {
+      ls.set(LS_NATIVE_LATER, String(Date.now())); // don't nag again today while they install
+      openExternal(new URL(url, baseUrl()).href);
+      setStatus(kind === 'electron'
+        ? 'Downloading in your browser… When it finishes, open Linoa-Setup.exe and follow the steps.'
+        : 'Downloading in your browser… When it finishes, tap the downloaded Linoa.apk and choose Install (allow installing from this source if Android asks).');
+      u.act.hidden = true;
+    };
+    // closing the popup counts as "Later"
+    const markLater = () => { if (u.act.textContent === 'Install') ls.set(LS_NATIVE_LATER, String(Date.now())); };
+    u.overlay.addEventListener('click', (e) => { if (e.target === u.overlay) markLater(); }, { once: true });
+    u.close.addEventListener('click', markLater, { once: true });
+  }
+
   // Automatic update: check in the background; if a newer version exists, download + install it
   // right away and show the progress popup. Gives up on a version after 3 failed attempts so a broken
   // release can't trap the app in a loop.
@@ -582,7 +618,7 @@
     state.manifest = m;
     // Note: the try counter is NOT cleared here; if a new version rolls back to an older one, the
     // older one must still see how many times it already tried (cleared only after a confirmed install).
-    if (!(m.version > CUR)) { ls.del(LS_AVAIL); updateBadge(); return; }
+    if (!(m.version > CUR)) { ls.del(LS_AVAIL); updateBadge(); await offerNativeInstaller(m); return; }
     ls.set(LS_AVAIL, JSON.stringify({ version: m.version, notes: m.notes || '' }));
     updateBadge();
     const u = ensureUi();

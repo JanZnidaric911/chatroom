@@ -1,5 +1,15 @@
 [
   {
+    "version": 5,
+    "date": "2026-11-05",
+    "title": "Rooms work like a group",
+    "changes": [
+      "No more \"Waiting for other device\": you can use a room on its own, messages arrive whenever the other device is online",
+      "The room shows \"online\" or \"offline\" for the other device",
+      "The app now offers the new installer itself when there is one (for the Linoa name and icon on your desktop and home screen)"
+    ]
+  },
+  {
     "version": 4,
     "date": "2026-11-05",
     "title": "Hello, Linoa",

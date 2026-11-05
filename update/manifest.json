@@ -1,10 +1,10 @@
 {
-  "version": 4,
+  "version": 5,
   "files": [
     {
       "path": "app.js",
-      "sha256": "627fdb09e702a7b57233bd68819d4882324c8cd658d6bb28af8178d80780ead7",
-      "size": 109798
+      "sha256": "cf609ed3febe65d86eac65967e5bbdd03337eb4007e477e031cb1984bfc8156e",
+      "size": 109126
     },
     {
       "path": "index.html",
@@ -28,8 +28,8 @@
     },
     {
       "path": "updater.js",
-      "sha256": "fed74e7634298242ebf47566c740b1b927fad0eb1716114da6697d96a0927fb7",
-      "size": 29863
+      "sha256": "fe26321e047b6c418fb20ace5c1d2550475ac9307622bfd9bf5664844a7fce42",
+      "size": 32090
     },
     {
       "path": "vendor/peerjs.min.js",
@@ -38,7 +38,7 @@
     },
     {
       "path": "version.js",
-      "sha256": "920855c7305ce8293fef2efe6644faa66943434bfbe4159fa54b1d1d413a5fb3",
+      "sha256": "945a81c069a68aff0cc4a67bddb4318e2cf708974242d7eeaf116c225386d1ad",
       "size": 30
     }
   ],
@@ -46,10 +46,14 @@
     "windows": 2,
     "android": 2
   },
+  "nativeLatest": {
+    "windows": 3,
+    "android": 3
+  },
   "exeUrl": "https://github.com/JanZnidaric911/chatroom/releases/latest/download/Linoa-Setup.exe",
   "apkUrl": "https://github.com/JanZnidaric911/chatroom/releases/latest/download/Linoa.apk",
   "exeSize": 121623030,
   "apkSize": 4284503,
-  "notes": "ChatRoom is now called Linoa, with a brand-new icon. Fixed the PC app repeatedly downloading the same update. Saved files now go to the Linoa folder in Downloads.",
-  "published": "2026-11-05T14:07:41.485Z"
+  "notes": "No more \"Waiting for other device\": you can use a room on its own, messages arrive whenever the other device is online. The room shows \"online\" or \"offline\" for the other device. The app now offers the new installer itself when there is one (for the Linoa name and icon on your desktop and home screen).",
+  "published": "2026-11-05T15:11:41.928Z"
 }

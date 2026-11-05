@@ -1243,7 +1243,8 @@
   function stateOf(code) { const c = conns.get(code); return c ? c.state : 'connecting'; }
   function stateLabel(code) {
     const s = stateOf(code);
-    return s === 'connected' ? 'Connected' : s === 'waiting' ? 'Waiting for other device…' : 'Connecting…';
+    // The room works like a group: being alone in it is normal, so no "waiting" wording.
+    return s === 'connected' ? 'Online' : 'Offline';
   }
 
   function roomMenu(r, anchor) {
@@ -1662,29 +1663,16 @@
       sub.lastChild.innerHTML = '<i></i><i></i><i></i>';
       sub.appendChild(document.createTextNode(act));
     } else {
-      sub.textContent = st === 'connected' ? 'online' + (r.peerName ? ' · ' + r.peerName : '')
-        : st === 'waiting' ? 'waiting for ' + (r.peerName || 'other device') + '…' : 'connecting…';
+      sub.textContent = st === 'connected' ? 'online' + (r.peerName ? ' · ' + r.peerName : '') : 'offline';
     }
-    // slim status banner: visible while not connected, flashes "Connected" briefly on (re)connect
+    // The room works like a group: being the only one there is normal, so no "waiting for the
+    // other device" banner. Messages are simply delivered whenever the other device is online.
     const bar = $('#statusBar');
-    $('#statusText').textContent = st === 'connected'
-      ? 'Connected' + (r.peerName ? ' to ' + r.peerName : '')
-      : st === 'waiting' ? 'Waiting for other device…' : 'Connecting…';
-    let hint = c ? c.hint : '';
-    if (!hint && st === 'waiting') hint = 'Open Linoa on the other device. Messages are queued and delivered automatically.';
-    $('#statusHint').textContent = st === 'connected' ? '' : hint;
-    const prevSt = ui.barState;
+    $('#statusText').textContent = '';
+    $('#statusHint').textContent = '';
     ui.barState = st;
-    if (prevSt === st) return;
     clearTimeout(ui.barTimer);
-    if (st === 'connected') {
-      if (prevSt && prevSt !== 'connected') {
-        bar.className = 'status-bar connected show';
-        ui.barTimer = setTimeout(() => bar.classList.remove('show'), 1800);
-      } else if (prevSt !== 'connected') bar.className = 'status-bar connected';
-    } else {
-      bar.className = 'status-bar ' + st + ' show';
-    }
+    bar.className = 'status-bar';
   }
 
   // ---------- scrolling + floating "scroll to bottom" button
@@ -1771,7 +1759,7 @@
       const s = m.status || 'pending';
       const tk = el('span', 'tick ' + s);
       tk.innerHTML = svg(s === 'delivered' ? 'check-check' : s === 'sent' ? 'check' : 'clock', s === 'pending' ? 12 : 15);
-      tk.title = s === 'delivered' ? 'Delivered' : s === 'sent' ? 'Sent' : 'Pending — waiting for the other device';
+      tk.title = s === 'delivered' ? 'Delivered' : s === 'sent' ? 'Sent' : 'Not delivered yet — arrives when the other device is online';
       meta.appendChild(tk);
     }
     return meta;
