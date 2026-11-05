@@ -1,6 +1,11 @@
 /* Linoa web app — shared by Electron (desktop) and Capacitor (Android).
  *
- * Wire protocol (one PeerJS DataConnection, serialization 'raw', reliable/ordered):
+ * Transports: a direct PeerJS DataConnection (serialization 'raw', reliable/ordered) or, when direct P2P
+ * is impossible (CGNAT etc.), an end-to-end encrypted relay conn (relay.js, LinoaRelay over public MQTT)
+ * with the same send/data semantics. Both run side by side; direct is preferred. Exactly one conn is
+ * active; a `hello` arriving on another open conn means the peer switched to it, so we follow.
+ *
+ * Wire protocol (same on either transport):
  *   Control messages are JSON strings: {t: ...}
  *     hello      {t,v,name,sync,caps}       start of sync, followed by. caps (v3+): optional features the
  *                                           sender understands, e.g. ['typing','upload']. Optional messages
@@ -45,10 +50,11 @@
   const DEAD_MS = 45000;
   const DEFAULT_ICE = [
     { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    // PeerJS's free public TURN relays (fallback when direct P2P fails, e.g. mobile data / CGNAT)
-    { urls: ['turn:eu-0.turn.peerjs.com:3478', 'turn:us-0.turn.peerjs.com:3478'], username: 'peerjs', credential: 'peerjsp' }
+    { urls: 'stun:stun1.l.google.com:19302' }
+    // (PeerJS's free TURN is dead; the relay transport is the fallback now, user TURN still optional)
   ];
+  const RELAY_HIGH = 2 * 1024 * 1024;       // relay conn backpressure (bytes not yet acked by peer)
+  const RELAY_LOW = 1024 * 1024;
 
   // ---------------------------------------------------------------- profile namespacing
   const params = new URLSearchParams(location.search);
@@ -57,6 +63,10 @@
   const lsKey = (k) => NS + '.' + k;
   function lsGet(k, d) { try { const v = localStorage.getItem(lsKey(k)); return v == null ? d : v; } catch (e) { return d; } }
   function lsSet(k, v) { try { localStorage.setItem(lsKey(k), v); } catch (e) { /* ignore */ } }
+  // Debug: ?relayonly=1 (or ls 'relayOnly'='1') skips PeerJS entirely; ?norelay=1 (or 'noRelay') disables the relay.
+  const RELAY_ONLY = params.get('relayonly') === '1' || lsGet('relayOnly', '') === '1';
+  const HAS_RELAY = !!(window.LinoaRelay && window.LinoaRelay.Link) &&
+    !(params.get('norelay') === '1' || lsGet('noRelay', '') === '1');
 
   const P = window.ChatPlatform;
   const isTouch = P.kind === 'android' || (window.matchMedia && matchMedia('(pointer: coarse)').matches);
@@ -353,9 +363,63 @@
       this.typingTimer = null;
       this.stopped = false;
       this.retryTimer = null;
+      this.relayConn = null;     // open relay conn (active, or standby while direct is active)
+      this.directWait = null;    // open direct conn waiting for transfers on the relay to finish
+      this.link = null;
       this.tickTimer = setInterval(() => this.tick(), RETRY_MS);
       this.pingTimer = setInterval(() => this.ping(), PING_MS);
-      this.createPeer();
+      if (HAS_RELAY) {
+        try {
+          this.link = new LinoaRelay.Link({ code: this.code, slot: this.slot, log: (...a) => this.log('relay:', ...a) });
+          this.link.on('conn', (c) => this.onRelayConn(c));
+          this.link.on('state', () => { if (!this.conn) this.setState(this.idleState()); });
+        } catch (e) { console.error('relay init failed', e); this.link = null; }
+      }
+      if (RELAY_ONLY) this.setState(this.idleState(), '');
+      else this.createPeer();
+    }
+
+    get viaRelay() { return !!(this.conn && this.conn.isRelay); }
+    // State while no conn is active: 'waiting' once some transport could reach the peer.
+    idleState() {
+      return (this.peer && this.peer.open) || (this.link && this.link.state === 'ready') ? 'waiting' : 'connecting';
+    }
+    // Transfer in progress in either direction (direct takes over from the relay only when idle).
+    busy() { return !!this.sending || this.queue.length > 0 || this.incoming.size > 0 || this.announced.size > 0; }
+
+    onRelayConn(c) {
+      if (this.stopped) { try { c.close(); } catch (e) { /* */ } return; }
+      const old = this.relayConn;
+      this.relayConn = c;
+      this.setupConn(c, false);
+      if (old && old !== c && old !== this.conn) { try { old.close(); } catch (e) { /* */ } }
+      if (!this.conn || this.conn.isRelay) this.onOpen(c);
+      else this.log('relay ready (standby)');
+    }
+
+    // Peer sent `hello` on conn c that is not our active one: it switched transport, follow it.
+    shouldFollow(c) {
+      if (!c.open || this.stopped) return false;
+      const a = this.conn;
+      if (a && !!a.isRelay === !!c.isRelay) return false; // direct vs direct: onOpen's race logic decides
+      return c.isRelay ? c === this.relayConn : true;
+    }
+
+    upgradeSoon() { if (this.directWait) setTimeout(() => this.maybeUpgrade(), 300); } // let acks flush first
+
+    // Deferred direct takeover from the relay, once no transfer is running.
+    maybeUpgrade() {
+      const d = this.directWait;
+      if (!d) return;
+      if (this.stopped || !d.open || (this.conn && !this.conn.isRelay)) {
+        this.directWait = null;
+        if (d !== this.conn) setTimeout(() => { try { d.close(); } catch (e) { /* */ } }, 500);
+        return;
+      }
+      if (this.conn && this.busy()) return;
+      this.directWait = null;
+      this.log('relay idle, switching to direct');
+      this.onOpen(d, true);
     }
 
     log(...a) { console.log('[' + this.code + '/' + this.slot + ']', ...a); }
@@ -367,9 +431,9 @@
     }
 
     createPeer() {
-      if (this.stopped) return;
+      if (this.stopped || RELAY_ONLY) return;
       if (this.peer && !this.peer.destroyed) { try { this.peer.destroy(); } catch (e) { /* */ } }
-      this.setState('connecting', 'Contacting signalling server…');
+      if (!this.viaRelay) this.setState('connecting', 'Contacting signalling server…');
       const peer = new Peer(this.myId, { config: { iceServers: settings.iceServers() }, debug: 0 });
       this.peer = peer;
       peer.on('open', () => {
@@ -412,7 +476,7 @@
         this.log('peer error', type, err && err.message);
         if (type === 'unavailable-id') {
           // Our id is still held by a stale session on the server; retry soon.
-          this.setState('connecting', 'Previous session still registered, retrying…');
+          if (!this.conn) this.setState('connecting', 'Previous session still registered, retrying…');
           this.scheduleRecreate(4000);
         } else if (type === 'network' || type === 'server-error' || type === 'socket-error' || type === 'socket-closed') {
           this.lastFail = 'server';
@@ -420,7 +484,7 @@
           if (!this.conn) this.setState('connecting', 'Can’t reach signalling server — check internet connection.');
           if (peer.destroyed) this.scheduleRecreate(RETRY_MS);
         } else if (type === 'browser-incompatible') {
-          this.setState('connecting', 'WebRTC is not supported here.');
+          if (!this.conn) this.setState('connecting', 'WebRTC is not supported here.');
         } else if (type === 'webrtc') {
           this.lastFail = 'timeout';
           this.dropPendingOut();
@@ -447,15 +511,18 @@
 
     tick() {
       if (this.stopped) return;
+      this.maybeUpgrade();
+      if (RELAY_ONLY) return;
       const p = this.peer;
       if (!p || p.destroyed) { if (!this.retryTimer) this.scheduleRecreate(100); return; }
       if (p.disconnected) { try { p.reconnect(); } catch (e) { /* */ } return; }
-      if (!this.conn) this.tryConnect();
+      if (!this.conn || this.conn.isRelay) this.tryConnect();
     }
 
     tryConnect() {
       const p = this.peer;
-      if (this.stopped || this.conn || this.pendingOut || !p || !p.open) return;
+      // keep dialling direct while on the relay (direct is preferred)
+      if (this.stopped || (this.conn && !this.conn.isRelay) || this.directWait || this.pendingOut || !p || !p.open) return;
       const c = p.connect(this.otherId, { serialization: 'raw', reliable: true });
       if (!c) return;
       this.pendingOut = c;
@@ -475,45 +542,94 @@
     updateWaitingHint() {
       if (this.conn) return;
       if (this.lastFail === 'timeout') {
-        this.setState('waiting', 'Other device seems online but a direct connection failed. If this persists, add a TURN server in Settings.');
+        this.setState('waiting', this.link
+          ? 'Other device seems online but a direct connection failed — connecting through the encrypted relay…'
+          : 'Other device seems online but a direct connection failed. A TURN server in Settings may help.');
       }
     }
 
     setupConn(c, outgoing) {
       c._outgoing = outgoing;
-      c.on('open', () => this.onOpen(c));
-      c.on('data', (d) => { if (c === this.conn) this.onData(d); });
+      if (!c.isRelay) c.on('open', () => this.onOpen(c)); // relay conns arrive already open
+      c.on('data', (d) => {
+        if (c === this.conn) { this.onData(d); return; }
+        // other open conn of ours: only a hello matters (peer switched transport), the rest is ignored
+        if (typeof d === 'string' && d.startsWith('{"t":"hello"') && this.shouldFollow(c)) {
+          this.log('peer switched to ' + (c.isRelay ? 'relay' : 'direct') + ', following');
+          this.onOpen(c, true);
+          if (c === this.conn) this.onData(d);
+        }
+      });
       c.on('close', () => {
         if (c === this.pendingOut) { clearTimeout(c._timeout); this.pendingOut = null; }
+        if (c === this.relayConn) this.relayConn = null;
+        if (c === this.directWait) this.directWait = null;
         if (c === this.conn) this.onClose('closed');
       });
       c.on('error', (e) => {
         this.log('conn error', e && e.type, e && e.message);
-        if (c === this.conn) { try { c.close(); } catch (x) { /* */ } this.onClose('error'); }
+        if (c === this.conn) this.dropConn(c, 'error');
       });
+    }
+
+    // Close c; if it was the active conn, run onClose once (close may already have fired synchronously).
+    dropConn(c, why) {
+      try { c.close(); } catch (e) { /* */ }
+      if (c === this.conn) this.onClose(why);
     }
 
     initiatorSlot(c) { return c._outgoing ? this.slot : this.otherSlot; }
 
-    onOpen(c) {
+    // Two direct conns: keep the existing one only if both sides dialled at the same time (existing is
+    // very fresh) and it was initiated by slot 1, same on both ends. Otherwise the newer one wins,
+    // because the other side evidently considers the old one dead.
+    keepOld(old, c) {
+      const race = Date.now() - (old._openedAt || 0) < 4000;
+      return race && this.initiatorSlot(old) === 1 && this.initiatorSlot(c) !== 1;
+    }
+
+    // c is open (direct 'open' event, relay conn, or peer switched to it). force: peer already uses c.
+    onOpen(c, force) {
       if (c === this.pendingOut) { clearTimeout(c._timeout); this.pendingOut = null; }
       if (this.stopped) { c.close(); return; }
-      if (this.conn && this.conn.open && this.conn !== c) {
-        // Both sides dialled at the same time (existing conn is very fresh): keep the connection
-        // initiated by slot 1 on both ends. Otherwise the newer connection wins, because the other
-        // side evidently considers the old one dead.
-        const race = Date.now() - (this.conn._openedAt || 0) < 4000;
-        if (race && this.initiatorSlot(this.conn) === 1 && this.initiatorSlot(c) !== 1) {
+      if (c === this.conn) return;
+      const cur = this.conn && this.conn.open ? this.conn : null;
+      if (cur && !cur.isRelay && !c.isRelay) {
+        if (this.keepOld(cur, c)) {
           this.log('duplicate connection, keeping existing');
           setTimeout(() => c.close(), 500);
           return;
         }
         this.log('duplicate connection, switching');
-        const old = this.conn;
+      } else if (cur && !cur.isRelay && c.isRelay && !force) {
+        this.log('relay ready (standby)');
+        return;
+      } else if (cur && cur.isRelay && !c.isRelay && !force) {
+        // direct came up while on the relay: take over only when no transfer is running
+        const w = this.directWait;
+        if (w && w !== c && w.open) {
+          if (this.keepOld(w, c)) { setTimeout(() => c.close(), 500); return; }
+          setTimeout(() => { try { w.close(); } catch (e) { /* */ } }, 500);
+        }
+        this.directWait = c;
+        c._openedAt = Date.now();
+        if (this.busy()) { this.log('direct ready, switching when transfers finish'); return; }
+        this.directWait = null;
+      }
+      if (cur) {
+        this.log('switching ' + (cur.isRelay ? 'relay' : 'direct') + ' -> ' + (c.isRelay ? 'relay' : 'direct'));
         this.conn = null;
         this.abortTransfers();
-        setTimeout(() => { try { old.close(); } catch (e) { /* */ } }, 500);
+        // a relay conn being left stays as standby; a left direct conn is dead to the peer -> close it
+        if (!cur.isRelay || (c.isRelay && cur !== this.relayConn)) {
+          setTimeout(() => { try { cur.close(); } catch (e) { /* */ } }, 500);
+        }
       }
+      if (!c.isRelay && this.directWait && this.directWait !== c) {
+        const w = this.directWait;
+        setTimeout(() => { try { w.close(); } catch (e) { /* */ } }, 500);
+      }
+      if (!c.isRelay || this.directWait === c) this.directWait = null;
       this.conn = c;
       c._openedAt = Date.now();
       this.gen++;
@@ -523,15 +639,15 @@
       this.lastRx = Date.now();
       this.lastFail = '';
       const pc = c.peerConnection;
-      if (pc) {
+      if (pc && !c._iceWatch) {
+        c._iceWatch = true;
         pc.addEventListener('iceconnectionstatechange', () => {
           if (c === this.conn && (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'closed')) {
-            try { c.close(); } catch (e) { /* */ }
-            this.onClose('ice ' + pc.iceConnectionState);
+            this.dropConn(c, 'ice ' + pc.iceConnectionState);
           }
         });
       }
-      this.log('connected (initiator slot ' + this.initiatorSlot(c) + ')');
+      this.log('connected ' + (c.isRelay ? 'via relay' : '(initiator slot ' + this.initiatorSlot(c) + ')'));
       this.setState('connected', '');
       this.sendHello();
     }
@@ -540,10 +656,13 @@
       this.log('connection closed:', why);
       this.conn = null;
       this.abortTransfers();
-      if (!this.stopped) {
-        this.setState(this.peer && this.peer.open ? 'waiting' : 'connecting', '');
-        setTimeout(() => this.tick(), 1000);
-      }
+      if (this.stopped) return;
+      // fall back to another open conn right away (direct waiting to take over, else relay standby)
+      const next = [this.directWait, this.relayConn].find((x) => x && x.open);
+      this.directWait = null;
+      if (next) { this.onOpen(next, true); return; }
+      this.setState(this.idleState(), '');
+      setTimeout(() => this.tick(), 1000);
     }
 
     abortTransfers() {
@@ -756,6 +875,7 @@
           if (stored) onNewMessage(m); // replaces the placeholder in place
           onRxProgress(this.code, m.id, null);
           this.sendJSON({ t: 'ack', id: m.id });
+          this.upgradeSoon();
           break;
         }
         case 'file-abort': {
@@ -764,6 +884,7 @@
           // receiver refused / dropped our transfer -> stop sending chunks
           if (this.sending && this.sending.id === o.id) this.cancelled.add(o.id);
           if (this.queued.has(o.id)) { this.queue = this.queue.filter((m) => m.id !== o.id); this.queued.delete(o.id); }
+          this.upgradeSoon();
           break;
         }
         case 'ack': {
@@ -888,6 +1009,7 @@
         }
       } finally {
         this.pumping = false;
+        this.upgradeSoon();
       }
     }
 
@@ -926,6 +1048,15 @@
     }
 
     waitBuffer(conn) {
+      if (conn.isRelay) {
+        if (!(conn.bufferedAmount > RELAY_HIGH)) return Promise.resolve();
+        return new Promise((resolve) => {
+          let timer = null;
+          const done = () => { clearInterval(timer); resolve(); };
+          timer = setInterval(() => { if (conn !== this.conn || !conn.open) done(); }, 250);
+          conn.waitDrain(RELAY_LOW).then(done, done);
+        });
+      }
       const dc = conn.dataChannel;
       if (!dc) return Promise.resolve();
       const full = () => dc.bufferedAmount + (conn.bufferSize || 0) * CHUNK > BUF_HIGH;
@@ -951,8 +1082,11 @@
       clearInterval(this.pingTimer);
       clearTimeout(this.retryTimer);
       this.dropPendingOut();
-      if (this.conn) { try { this.conn.close(); } catch (e) { /* */ } }
+      for (const c of new Set([this.conn, this.relayConn, this.directWait])) if (c) { try { c.close(); } catch (e) { /* */ } }
       this.conn = null;
+      this.relayConn = null;
+      this.directWait = null;
+      if (this.link) { try { this.link.stop(); } catch (e) { /* */ } }
       if (this.peer) { try { this.peer.destroy(); } catch (e) { /* */ } }
     }
   }
@@ -1244,7 +1378,9 @@
   function stateLabel(code) {
     const s = stateOf(code);
     // The room works like a group: being alone in it is normal, so no "waiting" wording.
-    return s === 'connected' ? 'Online' : 'Offline';
+    if (s !== 'connected') return 'Offline';
+    const c = conns.get(code);
+    return c && c.viaRelay ? 'Online · via relay' : 'Online';
   }
 
   function roomMenu(r, anchor) {
@@ -1538,7 +1674,7 @@
       ta.placeholder = '[\n  {\n    "urls": "turn:global.relay.metered.ca:80",\n    "username": "…",\n    "credential": "…"\n  }\n]';
       ta.value = settings.turnJson;
       const hint = el('p', 'hint');
-      hint.innerHTML = 'Usually not needed. On some mobile networks a direct connection is impossible and the devices never connect — then a TURN relay is required, e.g. a free <b>metered.ca</b> account. Paste its ICE server list here on <b>both</b> devices.';
+      hint.innerHTML = 'Optional. When a direct connection is impossible (e.g. on mobile data), Linoa automatically falls back to an encrypted relay. A TURN server (e.g. a free <b>metered.ca</b> account) can make big transfers faster then. Paste its ICE server list here on <b>both</b> devices.';
       adv.append(l2, ta, hint);
 
       const err = el('div', 'err');
@@ -1663,7 +1799,7 @@
       sub.lastChild.innerHTML = '<i></i><i></i><i></i>';
       sub.appendChild(document.createTextNode(act));
     } else {
-      sub.textContent = st === 'connected' ? 'online' + (r.peerName ? ' · ' + r.peerName : '') : 'offline';
+      sub.textContent = st === 'connected' ? 'online' + (c.viaRelay ? ' · via relay' : '') + (r.peerName ? ' · ' + r.peerName : '') : 'offline';
     }
     // The room works like a group: being the only one there is normal, so no "waiting for the
     // other device" banner. Messages are simply delivered whenever the other device is online.

@@ -1,20 +1,25 @@
 {
-  "version": 5,
+  "version": 6,
   "files": [
     {
       "path": "app.js",
-      "sha256": "cf609ed3febe65d86eac65967e5bbdd03337eb4007e477e031cb1984bfc8156e",
-      "size": 109126
+      "sha256": "70df1b1bd3783b81b5c428bedb192a1432daed4463763816ea79e6fda8693c51",
+      "size": 116211
     },
     {
       "path": "index.html",
-      "sha256": "b79fcbe64509f6d88293307d2fa611eb0eb50bac2b4b230f0f556872801f4047",
-      "size": 9564
+      "sha256": "175071f1b8e0ecb39926a5627f86c8386ecfa88548c19024c8c39f60f1a75c57",
+      "size": 9599
     },
     {
       "path": "platform.js",
       "sha256": "36b195c05601b3ae30194ebabbad71014ef99de0ed75fca8add68c056404b0f3",
       "size": 5458
+    },
+    {
+      "path": "relay.js",
+      "sha256": "95227cc1efec1ab71ea1703b9006245a66a6bab03761e4265539b142dfcb95e6",
+      "size": 27092
     },
     {
       "path": "styles.css",
@@ -38,7 +43,7 @@
     },
     {
       "path": "version.js",
-      "sha256": "945a81c069a68aff0cc4a67bddb4318e2cf708974242d7eeaf116c225386d1ad",
+      "sha256": "96cb18a52c7c813eb052a52101b1b44b1f735ea7bfda18f3b7c3e25eef6e2424",
       "size": 30
     }
   ],
@@ -54,6 +59,6 @@
   "apkUrl": "https://github.com/JanZnidaric911/chatroom/releases/latest/download/Linoa.apk",
   "exeSize": 121623030,
   "apkSize": 4284503,
-  "notes": "No more \"Waiting for other device\": you can use a room on its own, messages arrive whenever the other device is online. The room shows \"online\" or \"offline\" for the other device. The app now offers the new installer itself when there is one (for the Linoa name and icon on your desktop and home screen).",
-  "published": "2026-11-05T15:11:41.928Z"
+  "notes": "Your devices now connect even when they are on different networks, e.g. phone on mobile data and PC on home Wi-Fi. When a direct connection is not possible, messages and files go through an encrypted relay automatically (shown as \"via relay\"). The relay cannot read anything: everything is end-to-end encrypted with your room code. When a direct connection becomes possible again, the app switches back to it on its own.",
+  "published": "2026-11-05T19:05:01.951Z"
 }

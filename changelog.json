@@ -1,5 +1,16 @@
 [
   {
+    "version": 6,
+    "date": "2026-11-05",
+    "title": "Works on any network",
+    "changes": [
+      "Your devices now connect even when they are on different networks, e.g. phone on mobile data and PC on home Wi-Fi",
+      "When a direct connection is not possible, messages and files go through an encrypted relay automatically (shown as \"via relay\")",
+      "The relay cannot read anything: everything is end-to-end encrypted with your room code",
+      "When a direct connection becomes possible again, the app switches back to it on its own"
+    ]
+  },
+  {
     "version": 5,
     "date": "2026-11-05",
     "title": "Rooms work like a group",
