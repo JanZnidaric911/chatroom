@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#11141b">
+  <title>ChatRoom</title>
+  <style>
+    :root {
+      --bg: #0e1117; --card: #171b24; --line: #262c3a; --text: #e8ebf2; --muted: #9aa3b5;
+      --accent: #4f7cff; --accent-2: #6d93ff;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--bg); color: var(--text); }
+    body {
+      font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      min-height: 100vh; display: flex; flex-direction: column; align-items: center;
+      padding: 48px 16px 32px;
+      background: radial-gradient(900px 500px at 50% -10%, rgba(79,124,255,.22), transparent 70%), var(--bg);
+    }
+    main { width: 100%; max-width: 460px; }
+    .logo {
+      width: 72px; height: 72px; border-radius: 20px; margin: 0 auto 16px;
+      background: linear-gradient(135deg, var(--accent), #8a5cff);
+      display: grid; place-items: center; box-shadow: 0 10px 30px rgba(79,124,255,.35);
+    }
+    .logo svg { width: 38px; height: 38px; }
+    h1 { text-align: center; margin: 0; font-size: 30px; letter-spacing: -.02em; }
+    .tag { text-align: center; color: var(--muted); margin: 6px 0 28px; }
+    .ver { display: inline-block; font-size: 13px; color: var(--muted); background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px; margin-bottom: 14px; }
+    .update {
+      display: block; text-align: center; text-decoration: none; color: #fff; font-weight: 650; font-size: 19px;
+      background: var(--accent); border-radius: 14px; padding: 18px 16px;
+      box-shadow: 0 8px 24px rgba(79,124,255,.35); transition: background .15s, transform .1s;
+    }
+    .update:hover { background: var(--accent-2); }
+    .update:active { transform: scale(.99); }
+    .small { font-size: 13px; color: var(--muted); text-align: center; margin: 10px 4px 0; }
+    .dl { display: flex; gap: 10px; flex-wrap: wrap; }
+    .dl a {
+      flex: 1 1 180px; display: flex; align-items: center; justify-content: center; gap: 8px;
+      text-decoration: none; color: var(--text); background: #1f2533; border: 1px solid var(--line);
+      border-radius: 12px; padding: 14px 12px; font-weight: 600;
+    }
+    .dl a:hover { border-color: var(--accent); }
+    .dl a[aria-disabled="true"] { opacity: .5; pointer-events: none; }
+    .dl svg { width: 20px; height: 20px; flex: none; }
+    h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 12px; font-weight: 600; }
+    .notes { white-space: pre-wrap; color: #c9cfdb; font-size: 14px; margin: 12px 0 0; }
+    footer { margin-top: auto; padding-top: 24px; font-size: 12px; color: #6b7487; text-align: center; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="logo" aria-hidden="true">
+      <svg viewBox="0 0 24 24"><path fill="#fff" d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2Z" transform="translate(-1 -1)"/></svg>
+    </div>
+    <h1>ChatRoom</h1>
+    <p class="tag">Private chat between your PC and phone<br><span class="ver" id="ver">Latest version: …</span></p>
+
+    <div class="card">
+      <a class="update" href="chatroom://update">Update app</a>
+      <p class="small">Opens ChatRoom and installs the latest version. If nothing happens, install the app first.</p>
+      <p class="notes" id="notes" hidden></p>
+    </div>
+
+    <div class="card">
+      <h2>Install</h2>
+      <div class="dl">
+        <a id="exe" href="#" aria-disabled="true">
+          <svg viewBox="0 0 24 24"><path fill="currentColor" d="M3 5.5 10.5 4.5v7H3v-6Zm0 13 7.5 1v-7H3v6Zm8.5 1.2L21 21v-8.5h-9.5v7.2Zm0-15.4v7.2H21V3l-9.5 1.3Z"/></svg>
+          Download for Windows
+        </a>
+        <a id="apk" href="#" aria-disabled="true">
+          <svg viewBox="0 0 24 24"><path fill="currentColor" d="M17.6 9.5l1.8-3.2a.4.4 0 0 0-.7-.4l-1.9 3.3a11 11 0 0 0-9.6 0L5.3 5.9a.4.4 0 0 0-.7.4l1.8 3.2A9.6 9.6 0 0 0 1.5 17h21a9.6 9.6 0 0 0-4.9-7.5ZM7 14.3a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm10 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"/></svg>
+          Download for Android
+        </a>
+      </div>
+      <p class="small">Already installed? Use “Update app” above — your chats are kept.</p>
+    </div>
+  </main>
+  <footer>ChatRoom · private build</footer>
+
+  <script>
+    (function () {
+      function setLink(id, url) {
+        var a = document.getElementById(id);
+        if (!url || /PLACEHOLDER/i.test(url)) return;
+        a.href = new URL(url, location.href).href; // relative URLs are relative to this page
+        a.removeAttribute('aria-disabled');
+      }
+      fetch('update/manifest.json?t=' + Date.now(), { cache: 'no-store' })
+        .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+        .then(function (m) {
+          document.getElementById('ver').textContent = 'Latest version: v' + m.version;
+          setLink('exe', m.exeUrl);
+          setLink('apk', m.apkUrl);
+          if (m.notes) { var n = document.getElementById('notes'); n.textContent = m.notes; n.hidden = false; }
+        })
+        .catch(function () { document.getElementById('ver').textContent = 'Version info unavailable'; });
+    })();
+  </script>
+</body>
+</html>

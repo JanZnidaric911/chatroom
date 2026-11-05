@@ -1,0 +1,1 @@
+window.CHATROOM_VERSION = 1;

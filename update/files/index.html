@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <meta name="theme-color" content="#11141b">
+  <title>ChatRoom</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- HOME -->
+  <section id="home" class="screen active">
+    <header class="topbar">
+      <div class="brand"><span class="logo">&#9679;</span> ChatRoom</div>
+      <button class="icon-btn" id="btnSettings" title="Settings" aria-label="Settings">
+        <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M19.14 12.94a7.07 7.07 0 0 0 .05-.94 7.07 7.07 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.3 7.3 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.49.42l-.36 2.54c-.59.24-1.13.56-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.66 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.4 7.4 0 0 0 0 1.88l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.13.22.39.3.6.22l2.39-.96c.5.38 1.04.7 1.63.94l.36 2.54c.05.24.25.42.49.42h3.84c.24 0 .45-.18.49-.42l.36-2.54c.59-.24 1.13-.56 1.63-.94l2.39.96c.22.08.47 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.6a3.6 3.6 0 1 1 0-7.2 3.6 3.6 0 0 1 0 7.2Z"/></svg>
+      </button>
+    </header>
+    <main class="home-main">
+      <ul id="roomList" class="room-list"></ul>
+      <div id="emptyHome" class="empty-home">
+        <div class="empty-icon">&#128172;</div>
+        <h2>No chat rooms yet</h2>
+        <p>Create a room on one device, then join it with the code on your other device.</p>
+      </div>
+      <div class="home-actions">
+        <button class="btn primary" id="btnCreate">Create room</button>
+        <button class="btn" id="btnJoin">Join room</button>
+      </div>
+    </main>
+  </section>
+
+  <!-- CHAT -->
+  <section id="chat" class="screen">
+    <header class="topbar chat-top">
+      <button class="icon-btn" id="btnBack" title="Back" aria-label="Back">
+        <svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M15.4 5.4 14 4l-8 8 8 8 1.4-1.4L8.8 12z"/></svg>
+      </button>
+      <button class="chat-title" id="chatTitle" title="Show room code">
+        <span class="dot" id="chatDot"></span>
+        <span class="chat-title-text">
+          <span id="chatName">Room</span>
+          <small id="chatSub"></small>
+        </span>
+      </button>
+      <button class="icon-btn" id="btnSettings2" title="Settings" aria-label="Settings">
+        <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm0 6a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z"/></svg>
+      </button>
+    </header>
+    <div id="statusBar" class="status-bar waiting">
+      <span id="statusText">Connecting…</span>
+      <small id="statusHint"></small>
+    </div>
+    <div id="messages" class="messages" aria-live="polite"></div>
+    <div id="selectBar" class="select-bar" hidden>
+      <button class="icon-btn" id="selCancel" title="Cancel selection" aria-label="Cancel selection">
+        <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M19 6.4 17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19l5.6-5.6 5.6 5.6 1.4-1.4-5.6-5.6z"/></svg>
+      </button>
+      <span id="selCount" class="sel-count">0 selected</span>
+      <button class="btn small" id="selAll">All</button>
+      <button class="btn small" id="selDelMe">Delete for me</button>
+      <button class="btn small danger" id="selDelAll">Delete for everyone</button>
+    </div>
+    <footer class="composer">
+      <button class="icon-btn" id="btnAttach" title="Attach files" aria-label="Attach files">
+        <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M16.5 6.5v10a4.5 4.5 0 0 1-9 0V5a3 3 0 0 1 6 0v10.5a1.5 1.5 0 0 1-3 0V6.5H9v9a3 3 0 0 0 6 0V5a4.5 4.5 0 0 0-9 0v11.5a6 6 0 0 0 12 0v-10h-1.5Z"/></svg>
+      </button>
+      <input type="file" id="fileInput" multiple hidden>
+      <textarea id="input" rows="1" placeholder="Message" autocomplete="off"></textarea>
+      <button class="send-btn" id="btnSend" title="Send" aria-label="Send">
+        <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M3.4 20.4 21 12 3.4 3.6 3.4 10l12.6 2-12.6 2z"/></svg>
+      </button>
+    </footer>
+    <div id="dropOverlay" class="drop-overlay"><div>Drop files to send</div></div>
+  </section>
+
+  <!-- MODAL -->
+  <div id="modal" class="overlay" hidden>
+    <div class="dialog" role="dialog" aria-modal="true">
+      <div id="modalBody"></div>
+    </div>
+  </div>
+
+  <!-- IMAGE VIEWER -->
+  <div id="viewer" class="viewer" hidden>
+    <div class="viewer-bar">
+      <span id="viewerName"></span>
+      <div>
+        <button class="btn small" id="viewerSave">Save</button>
+        <button class="icon-btn" id="viewerClose" aria-label="Close">
+          <svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M19 6.4 17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19l5.6-5.6 5.6 5.6 1.4-1.4-5.6-5.6z"/></svg>
+        </button>
+      </div>
+    </div>
+    <img id="viewerImg" alt="">
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="vendor/peerjs.min.js"></script>
+  <script src="platform.js"></script>
+  <script src="app.js"></script>
+  <script src="version.js"></script>
+  <script src="update-config.js"></script>
+  <script src="updater.js"></script>
+</body>
+</html>

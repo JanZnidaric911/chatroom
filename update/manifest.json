@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "files": [
+    {
+      "path": "app.js",
+      "sha256": "73e3d7b687287bd7cafd034bce26edd964e1a023d719254cc010995e86fc3037",
+      "size": 76940
+    },
+    {
+      "path": "index.html",
+      "sha256": "526f79b07d1cdb866722bc81a539a98340ecff72421a8cc7807e385e43e54555",
+      "size": 5474
+    },
+    {
+      "path": "platform.js",
+      "sha256": "262200c7007de0a1f8eb9e4bf3953a57456843faedb2fea0ba8d2954cbce7c76",
+      "size": 5467
+    },
+    {
+      "path": "styles.css",
+      "sha256": "fedbbd9ed7d35a0419fcde1c7097e292ed6c16f76cab9156fde87374f6498b36",
+      "size": 15536
+    },
+    {
+      "path": "update-config.js",
+      "sha256": "7a304c6cd3a5889aedda0a454dacaed93a4a5f8ea36c39575395b457e69915e4",
+      "size": 173
+    },
+    {
+      "path": "updater.js",
+      "sha256": "408047c7f11ef2e3e6187b2b502a9bc9be636ef883ef569f89c9016ca475fdef",
+      "size": 26513
+    },
+    {
+      "path": "vendor/peerjs.min.js",
+      "sha256": "94107a30d65c981103b0b748f298b8a42a3e9f89b343d4856ed10088790b6f8e",
+      "size": 92827
+    },
+    {
+      "path": "version.js",
+      "sha256": "602f5c4a2ee2c9c37ad9baff94e426655bde4329991b9a82fa3e496fdece477c",
+      "size": 29
+    }
+  ],
+  "nativeMinVersion": {
+    "windows": 2,
+    "android": 2
+  },
+  "exeUrl": "https://github.com/JanZnidaric911/chatroom/releases/latest/download/ChatRoom-Setup.exe",
+  "apkUrl": "https://github.com/JanZnidaric911/chatroom/releases/latest/download/ChatRoom.apk",
+  "notes": "",
+  "published": "2026-11-05T12:48:03.376Z"
+}
