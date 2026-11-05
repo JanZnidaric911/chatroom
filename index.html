@@ -6,8 +6,11 @@
   <meta name="color-scheme" content="dark light">
   <meta name="theme-color" content="#0d1016" media="(prefers-color-scheme: dark)">
   <meta name="theme-color" content="#f5f7fb" media="(prefers-color-scheme: light)">
-  <meta name="description" content="ChatRoom - your private chat between PC and phone. Download for Windows and Android.">
-  <title>ChatRoom</title>
+  <meta name="description" content="Linoa - your private chat between PC and phone. Download for Windows and Android.">
+  <title>Linoa</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1024'%3E%3Cdefs%3E%3ClinearGradient id='fBg' x1='140' y1='80' x2='884' y2='944' gradientUnits='userSpaceOnUse'%3E%3Cstop offset='0' stop-color='%234f7cff'/%3E%3Cstop offset='.55' stop-color='%236b6cff'/%3E%3Cstop offset='1' stop-color='%238a5cff'/%3E%3C/linearGradient%3E%3CradialGradient id='fHl' cx='300' cy='170' r='620' gradientUnits='userSpaceOnUse'%3E%3Cstop offset='0' stop-color='%23fff' stop-opacity='.3'/%3E%3Cstop offset='.5' stop-color='%23fff' stop-opacity='.06'/%3E%3Cstop offset='1' stop-color='%23fff' stop-opacity='0'/%3E%3C/radialGradient%3E%3C/defs%3E%3Cpath d='M984 512C984 981.17 981.17 984 512 984C42.83 984 40 981.17 40 512C40 42.83 42.83 40 512 40C981.17 40 984 42.83 984 512Z' fill='url(%23fBg)'/%3E%3Cpath d='M425.6 198.8H598.4C708.8 198.8 797.6 287.6 797.6 398V522.8C797.6 633.2 708.8 722 598.4 722H440C401.6 762.8 332 810.8 248 825.2C281.6 782 298.4 738.8 293.6 690.8C255.2 654.8 226.4 597.2 226.4 522.8V398C226.4 287.6 315.2 198.8 425.6 198.8ZM388.4 350A68.4 68.4 0 0 1 525.2 350V516.8H603.2A68.4 68.4 0 0 1 603.2 653.6H456.8A68.4 68.4 0 0 1 388.4 585.2Z' fill='%23fff' fill-rule='evenodd'/%3E%3C/svg%3E">
+  <link rel="icon" type="image/png" sizes="192x192" href="favicon.png">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <style>
     :root {
       --bg: #0d1016; --bg-2: #11151d; --card: #161b25; --card-2: #1b2130; --line: #252c3b; --line-2: #313a4d;
@@ -45,12 +48,8 @@
 
     /* hero */
     .hero { text-align: center; padding: 64px 0 36px; }
-    .logo {
-      width: 84px; height: 84px; border-radius: 24px; margin: 0 auto 22px; background: var(--grad);
-      display: grid; place-items: center;
-      box-shadow: 0 14px 40px rgba(79,124,255,.38), 0 0 0 1px rgba(255,255,255,.12) inset;
-    }
-    .logo svg { width: 44px; height: 44px; }
+    .logo { width: 96px; height: 96px; margin: 0 auto 22px; display: block; filter: drop-shadow(0 14px 28px rgba(91,108,255,.38)); }
+    .logo svg { display: block; width: 96px; height: 96px; }
     h1 { margin: 0; font-size: clamp(36px, 7vw, 56px); line-height: 1.05; letter-spacing: -.035em; font-weight: 750; }
     .tagline { margin: 14px auto 0; max-width: 34ch; color: var(--muted); font-size: clamp(17px, 2.4vw, 20px); }
     .pill {
@@ -155,8 +154,8 @@
     footer { margin-top: 72px; border-top: 1px solid var(--line); padding: 26px 0 34px; color: var(--faint); font-size: 13.5px; }
     footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 20px; justify-content: space-between; align-items: center; }
     footer .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--muted); font-weight: 600; }
-    footer .mini { width: 22px; height: 22px; border-radius: 7px; background: var(--grad); display: grid; place-items: center; }
-    footer .mini svg { width: 12px; height: 12px; }
+    footer .mini { width: 22px; height: 22px; display: block; }
+    footer .mini svg { display: block; width: 22px; height: 22px; }
     @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
   </style>
 </head>
@@ -165,9 +164,9 @@
 
   <header class="hero wrap">
     <div class="logo" aria-hidden="true">
-      <svg viewBox="0 0 24 24"><path fill="#fff" d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2Z" transform="translate(-1 -1)"/></svg>
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs><linearGradient id="heroBg" x1="140" y1="80" x2="884" y2="944" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#4f7cff"/><stop offset=".55" stop-color="#6b6cff"/><stop offset="1" stop-color="#8a5cff"/></linearGradient><radialGradient id="heroHl" cx="300" cy="170" r="620" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#fff" stop-opacity=".3"/><stop offset=".5" stop-color="#fff" stop-opacity=".06"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient></defs><path d="M984 512C984 981.17 981.17 984 512 984C42.83 984 40 981.17 40 512C40 42.83 42.83 40 512 40C981.17 40 984 42.83 984 512Z" fill="url(#heroBg)"/><path d="M984 512C984 981.17 981.17 984 512 984C42.83 984 40 981.17 40 512C40 42.83 42.83 40 512 40C981.17 40 984 42.83 984 512Z" fill="url(#heroHl)"/><path d="M434.24 235.52H589.76C689.12 235.52 769.04 315.44 769.04 414.8V527.12C769.04 626.48 689.12 706.4 589.76 706.4H447.2C412.64 743.12 350 786.32 274.4 799.28C304.64 760.4 319.76 721.52 315.44 678.32C280.88 645.92 254.96 594.08 254.96 527.12V414.8C254.96 315.44 334.88 235.52 434.24 235.52ZM412.64 358.64A49.68 49.68 0 0 1 512 358.64V533.6H602.72A49.68 49.68 0 0 1 602.72 632.96H462.32A49.68 49.68 0 0 1 412.64 583.28Z" fill="#fff" fill-rule="evenodd"/></svg>
     </div>
-    <h1>ChatRoom</h1>
+    <h1>Linoa</h1>
     <p class="tagline">Your private chat between PC and phone</p>
     <div class="pill off" id="pill"><span class="dot" aria-hidden="true"></span><span id="pillText">Checking latest version…</span></div>
   </header>
@@ -175,7 +174,7 @@
   <main>
     <div class="wrap">
       <div class="downloads">
-        <a class="dl" id="exe" href="https://github.com/JanZnidaric911/chatroom/releases/latest/download/ChatRoom-Setup.exe">
+        <a class="dl" id="exe" href="https://github.com/JanZnidaric911/chatroom/releases/latest/download/Linoa-Setup.exe">
           <span class="ico" aria-hidden="true">
             <svg viewBox="0 0 24 24"><path fill="currentColor" d="M3 5.6 10.4 4.6v7H3v-6Zm0 12.8 7.4 1v-6.9H3v5.9Zm8.3 1.1L21 21v-8.6h-9.7v7.1Zm0-15.1v7.2H21V3l-9.7 1.4Z"/></svg>
           </span>
@@ -185,7 +184,7 @@
           </span>
           <span class="btn"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19.5h14"/></svg>Download</span>
         </a>
-        <a class="dl" id="apk" href="https://github.com/JanZnidaric911/chatroom/releases/latest/download/ChatRoom.apk">
+        <a class="dl" id="apk" href="https://github.com/JanZnidaric911/chatroom/releases/latest/download/Linoa.apk">
           <span class="ico" aria-hidden="true">
             <svg viewBox="0 0 24 24"><path fill="currentColor" d="M17.6 9.6l1.8-3.2a.45.45 0 0 0-.78-.44l-1.85 3.3a10.8 10.8 0 0 0-9.54 0L5.38 5.96a.45.45 0 0 0-.78.44l1.8 3.2A9.5 9.5 0 0 0 1.6 17.2h20.8a9.5 9.5 0 0 0-4.8-7.6ZM7.1 14.4a1.05 1.05 0 1 1 0-2.1 1.05 1.05 0 0 1 0 2.1Zm9.8 0a1.05 1.05 0 1 1 0-2.1 1.05 1.05 0 0 1 0 2.1Z"/></svg>
           </span>
@@ -214,7 +213,7 @@
       <div class="head"><p class="eyebrow">Getting started</p>
       <h2 id="howTitle">How it works</h2></div>
       <ol class="steps">
-        <li><div class="num">1</div><h3>Install on both devices</h3><p>Get ChatRoom for your Windows PC and your Android phone.</p></li>
+        <li><div class="num">1</div><h3>Install on both devices</h3><p>Get Linoa for your Windows PC and your Android phone.</p></li>
         <li><div class="num">2</div><h3>Join the same room</h3><p>Create a room on one device, then type its code on the other.</p></li>
         <li><div class="num">3</div><h3>Chat &amp; share</h3><p>Send messages, photos, videos and files in full quality, over any network.</p></li>
       </ol>
@@ -223,7 +222,7 @@
 
   <footer>
     <div class="wrap">
-      <span class="brand"><span class="mini" aria-hidden="true"><svg viewBox="0 0 24 24"><path fill="#fff" d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2Z" transform="translate(-1 -1)"/></svg></span>ChatRoom</span>
+      <span class="brand"><span class="mini" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs><linearGradient id="ftBg" x1="140" y1="80" x2="884" y2="944" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#4f7cff"/><stop offset=".55" stop-color="#6b6cff"/><stop offset="1" stop-color="#8a5cff"/></linearGradient><radialGradient id="ftHl" cx="300" cy="170" r="620" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#fff" stop-opacity=".3"/><stop offset=".5" stop-color="#fff" stop-opacity=".06"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient></defs><path d="M984 512C984 981.17 981.17 984 512 984C42.83 984 40 981.17 40 512C40 42.83 42.83 40 512 40C981.17 40 984 42.83 984 512Z" fill="url(#ftBg)"/><path d="M425.6 198.8H598.4C708.8 198.8 797.6 287.6 797.6 398V522.8C797.6 633.2 708.8 722 598.4 722H440C401.6 762.8 332 810.8 248 825.2C281.6 782 298.4 738.8 293.6 690.8C255.2 654.8 226.4 597.2 226.4 522.8V398C226.4 287.6 315.2 198.8 425.6 198.8ZM388.4 350A68.4 68.4 0 0 1 525.2 350V516.8H603.2A68.4 68.4 0 0 1 603.2 653.6H456.8A68.4 68.4 0 0 1 388.4 585.2Z" fill="#fff" fill-rule="evenodd"/></svg></span>Linoa</span>
       <span>Private chat between your PC and phone · <span id="footVer">private build</span></span>
     </div>
   </footer>

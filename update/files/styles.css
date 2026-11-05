@@ -1,4 +1,4 @@
-/* ChatRoom — design tokens. Dark is the default; light via prefers-color-scheme or [data-theme]. */
+/* Linoa — design tokens. Dark is the default; light via prefers-color-scheme or [data-theme]. */
 :root {
   --bg: #0b0e14;
   --bg-elev: #10141c;

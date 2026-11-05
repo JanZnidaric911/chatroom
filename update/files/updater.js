@@ -1,4 +1,4 @@
-/* ChatRoom over-the-air updater (self-contained: own CSS, own DOM).
+/* Linoa over-the-air updater (self-contained: own CSS, own DOM).
  *
  * Reads:  window.CHATROOM_VERSION (version.js), window.CHATROOM_UPDATE_URL (update-config.js)
  * Fetches <CHATROOM_UPDATE_URL>update/manifest.json and update/files/<path>.
@@ -229,7 +229,7 @@
     } else if (kind === 'android') {
       await installAndroid(m.version, files, onProgress);
     } else {
-      throw new Error('Open the ChatRoom app to install updates.');
+      throw new Error('Open the Linoa app to install updates.');
     }
   }
 
@@ -385,7 +385,7 @@
     ensureUi();
     if (!badge) {
       badge = el('button', 'cru-badge', 'Update available');
-      badge.title = 'A new ChatRoom version is available';
+      badge.title = 'A new Linoa version is available';
       badge.onclick = () => { showPanel(); runCheck(false); };
       const topbar = document.querySelector('#home .topbar');
       const btn = document.getElementById('btnSettings');
@@ -465,7 +465,7 @@
       return;
     }
     if (kind === 'browser') {
-      setStatus('Version ' + m.version + ' is available. Open the ChatRoom app to install it (this browser page cannot update itself).');
+      setStatus('Version ' + m.version + ' is available. Open the Linoa app to install it (this browser page cannot update itself).');
       u.act.textContent = 'Download page'; u.act.hidden = false;
       u.act.onclick = () => openExternal(siteUrl());
       return;
@@ -530,7 +530,7 @@
     if (just) {
       ls.del(LS_JUST);
       suppressLaunchUrl = true;
-      if (Number(just) === CUR) { toast('ChatRoom updated to v' + CUR); ls.del(LS_AVAIL); ls.del('chatroom.update.tries'); updateBadge(); }
+      if (Number(just) === CUR) { toast('Linoa updated to v' + CUR); ls.del(LS_AVAIL); ls.del('chatroom.update.tries'); updateBadge(); }
     }
 
     if (kind === 'android') {
@@ -548,7 +548,15 @@
         } catch (e) { /* ignore */ }
       }
     } else if (kind === 'electron') {
-      if (api.otaBooted) api.otaBooted().catch(() => {});
+      if (api.otaBooted) {
+        // Older PC shells start their "did it boot?" timer on did-finish-load, which can fire AFTER this
+        // point, so a single early call gets missed and the shell rolls back -> endless update loop.
+        // Signal again after the load event and a few seconds later.
+        const signal = () => { try { api.otaBooted().catch(() => {}); } catch (e) { /* ignore */ } };
+        signal();
+        const later = () => { setTimeout(signal, 300); setTimeout(signal, 3000); setTimeout(signal, 10000); };
+        if (document.readyState === 'complete') later(); else window.addEventListener('load', later, { once: true });
+      }
       if (api.onDeepLink) api.onDeepLink(handleDeepLink);
     }
 
@@ -572,7 +580,9 @@
     let m;
     try { m = await fetchManifest(); } catch (e) { return; } finally { state.checking = false; }
     state.manifest = m;
-    if (!(m.version > CUR)) { ls.del(LS_AVAIL); ls.del(LS_TRIES); updateBadge(); return; }
+    // Note: the try counter is NOT cleared here; if a new version rolls back to an older one, the
+    // older one must still see how many times it already tried (cleared only after a confirmed install).
+    if (!(m.version > CUR)) { ls.del(LS_AVAIL); updateBadge(); return; }
     ls.set(LS_AVAIL, JSON.stringify({ version: m.version, notes: m.notes || '' }));
     updateBadge();
     const u = ensureUi();

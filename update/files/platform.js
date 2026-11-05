@@ -1,4 +1,4 @@
-/* ChatRoom platform bridge: window.ChatPlatform
+/* Linoa platform bridge: window.ChatPlatform
  * kind: 'electron' | 'android' | 'browser'
  * saveFile(name, mime, blob) -> Promise<string>  (saved path or human readable message)
  * copyText(text) -> Promise<void>
@@ -83,12 +83,12 @@
     const safe = sanitizeName(name);
     try {
       try { if (FS.requestPermissions) await FS.requestPermissions(); } catch (e) { /* ignore */ }
-      const path = await uniquePath(FS, 'Download/ChatRoom', safe, 'EXTERNAL_STORAGE');
+      const path = await uniquePath(FS, 'Download/Linoa', safe, 'EXTERNAL_STORAGE');
       await writeChunked(FS, path, 'EXTERNAL_STORAGE', blob);
       return 'Internal storage/' + path;
     } catch (e) {
       console.warn('ExternalStorage save failed, falling back to Documents', e);
-      const path = await uniquePath(FS, 'ChatRoom', safe, 'DOCUMENTS');
+      const path = await uniquePath(FS, 'Linoa', safe, 'DOCUMENTS');
       await writeChunked(FS, path, 'DOCUMENTS', blob);
       return 'Documents/' + path;
     }

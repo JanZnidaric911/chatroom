@@ -1,4 +1,4 @@
-/* ChatRoom web app — shared by Electron (desktop) and Capacitor (Android).
+/* Linoa web app — shared by Electron (desktop) and Capacitor (Android).
  *
  * Wire protocol (one PeerJS DataConnection, serialization 'raw', reliable/ordered):
  *   Control messages are JSON strings: {t: ...}
@@ -1671,7 +1671,7 @@
       ? 'Connected' + (r.peerName ? ' to ' + r.peerName : '')
       : st === 'waiting' ? 'Waiting for other device…' : 'Connecting…';
     let hint = c ? c.hint : '';
-    if (!hint && st === 'waiting') hint = 'Open ChatRoom on the other device. Messages are queued and delivered automatically.';
+    if (!hint && st === 'waiting') hint = 'Open Linoa on the other device. Messages are queued and delivered automatically.';
     $('#statusHint').textContent = st === 'connected' ? '' : hint;
     const prevSt = ui.barState;
     ui.barState = st;
