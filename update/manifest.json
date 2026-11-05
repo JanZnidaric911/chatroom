@@ -1,15 +1,15 @@
 {
-  "version": 2,
+  "version": 3,
   "files": [
     {
       "path": "app.js",
-      "sha256": "73e3d7b687287bd7cafd034bce26edd964e1a023d719254cc010995e86fc3037",
-      "size": 76940
+      "sha256": "baccebc5261ab6945753c216fba3b2f95ad0fcded6b4f75dee062b6a26182fe2",
+      "size": 109804
     },
     {
       "path": "index.html",
-      "sha256": "526f79b07d1cdb866722bc81a539a98340ecff72421a8cc7807e385e43e54555",
-      "size": 5474
+      "sha256": "9162723686a8fd3511d5f95c5f0327baec4f8066bdb066546f143dd787ef2d82",
+      "size": 7724
     },
     {
       "path": "platform.js",
@@ -18,8 +18,8 @@
     },
     {
       "path": "styles.css",
-      "sha256": "fedbbd9ed7d35a0419fcde1c7097e292ed6c16f76cab9156fde87374f6498b36",
-      "size": 15536
+      "sha256": "e342a0a74f674d71e5e934f2d0def046af23943277157c8b275cf457be5082d8",
+      "size": 40916
     },
     {
       "path": "update-config.js",
@@ -28,8 +28,8 @@
     },
     {
       "path": "updater.js",
-      "sha256": "411a9e51148a38abb7cb569e007c904c3112ee133d17778951a9e79aad652e08",
-      "size": 28204
+      "sha256": "66a3d519d0bfcd834d33b5e65f5b33f2aa2f0062541c1fc0f53f1f71a0004dc9",
+      "size": 29087
     },
     {
       "path": "vendor/peerjs.min.js",
@@ -38,7 +38,7 @@
     },
     {
       "path": "version.js",
-      "sha256": "3a8dff9c56f1b70e933f7f090c26b15405aad1316d36bd097c0e87640dfd7fbb",
+      "sha256": "914a35984fb06c3590a0baf63fdf0af9fbb072a01bef5926c8305549526c5bb2",
       "size": 30
     }
   ],
@@ -48,6 +48,8 @@
   },
   "exeUrl": "https://github.com/JanZnidaric911/chatroom/releases/latest/download/ChatRoom-Setup.exe",
   "apkUrl": "https://github.com/JanZnidaric911/chatroom/releases/latest/download/ChatRoom.apk",
-  "notes": "The app now updates itself automatically when you open it. Delete messages for everyone or just for you.",
-  "published": "2026-11-05T13:04:48.910Z"
+  "exeSize": 121320605,
+  "apkSize": 3814735,
+  "notes": "Completely redesigned, modern look on PC and phone. Delete any single message, photo, video or file for everyone, right from the message. Save photos, videos and files with one tap on the download icon. See when the other person is typing. See photos, videos and files coming in while they are still being sent, with progress. Removed \"Clear chat for everyone\" so your history can't be wiped by accident.",
+  "published": "2026-11-05T13:39:02.972Z"
 }

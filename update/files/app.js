@@ -2,7 +2,10 @@
  *
  * Wire protocol (one PeerJS DataConnection, serialization 'raw', reliable/ordered):
  *   Control messages are JSON strings: {t: ...}
- *     hello      {t,v,name}                 start of sync, followed by
+ *     hello      {t,v,name,sync,caps}       start of sync, followed by. caps (v3+): optional features the
+ *                                           sender understands, e.g. ['typing','upload']. Optional messages
+ *                                           below are only sent to a peer whose hello advertised them, so
+ *                                           older clients (no caps) never see them.
  *     have       {t,ids:[...]}              batches (<=1000) of every message id this device has COMPLETELY stored,
  *                                           plus every tombstoned (deleted) id, so deleted messages are never re-sent
  *     have-end   {t}                        -> peer now sends each of ITS OWN messages missing from that set;
@@ -15,6 +18,12 @@
  *     del        {t,ids:[...]}              delete for everyone (batches <=1000): peer deletes + tombstones them
  *     del-ack    {t,ids:[...]}              peer applied the delete -> tombstones no longer need sending
  *     ping/pong  {t}                        keep-alive
+ *   Optional (cap-gated):
+ *     typing     {t,on:bool}                cap 'typing': on=true refreshed every <=3 s while typing; receiver
+ *                                           hides the indicator on on=false, on a new message, or after 6 s
+ *     upload     {t,items:[{id,ts,fileName,mime,size}]}
+ *                                           cap 'upload': files that are about to be sent (picked / queued);
+ *                                           receiver shows placeholders until file-start/-end or file-abort
  *   Binary chunk = ArrayBuffer: [36 bytes ASCII message id][4 bytes uint32 BE chunk index][payload <= 64 KB]
  */
 (function () {
@@ -29,6 +38,7 @@
   const BUF_LOW = 2 * 1024 * 1024;
   const RX_GROUP = 16 * 1024 * 1024;        // receiver: merge chunks into a Blob every 16 MB
   const HEADER = 40;
+  const CAPS = ['typing', 'upload'];
   const RETRY_MS = 5000;
   const CONNECT_TIMEOUT = 15000;
   const PING_MS = 5000;
@@ -122,21 +132,6 @@
     return frag;
   }
 
-  // ---------------------------------------------------------------- toast
-  let toastTimer = null;
-  function toast(msg, action, ms) {
-    const t = $('#toast');
-    t.innerHTML = '';
-    t.appendChild(el('span', null, msg));
-    if (action) {
-      const b = el('button', 'btn small primary', action.label);
-      b.onclick = () => { t.hidden = true; action.fn(); };
-      t.appendChild(b);
-    }
-    t.hidden = false;
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { t.hidden = true; }, ms || (action ? 7000 : 2600));
-  }
 
   // ---------------------------------------------------------------- settings
   const settings = {
@@ -351,6 +346,11 @@
       this.synced = false;       // peer's id list received on the current connection
       this.theirIds = null;
       this.rxChain = Promise.resolve();
+      this.peerCaps = new Set(); // optional features the peer advertised in its hello
+      this.announced = new Map(); // id -> meta: files the peer announced but has not started sending yet
+      this.annOut = new Set();   // ids we announced to the peer on the current connection
+      this.peerTyping = false;
+      this.typingTimer = null;
       this.stopped = false;
       this.retryTimer = null;
       this.tickTimer = setInterval(() => this.tick(), RETRY_MS);
@@ -519,6 +519,7 @@
       this.gen++;
       this.synced = false;
       this.theirIds = null;
+      this.peerCaps = new Set(); // until this connection's hello arrives
       this.lastRx = Date.now();
       this.lastFail = '';
       const pc = c.peerConnection;
@@ -550,13 +551,47 @@
       this.gen++;
       this.synced = false;
       this.theirIds = null;
+      for (const m of this.queue) onTxProgress(this.code, m.id, null);
       this.queue = [];
       this.queued.clear();
+      this.annOut.clear();
       if (this.sending) onTxProgress(this.code, this.sending.id, null);
       this.sending = null;
-      // Incoming: drop partial data.
-      for (const id of this.incoming.keys()) onRxProgress(this.code, id, null);
+      // Incoming: drop partial data and announced placeholders.
+      const rxIds = [...this.incoming.keys(), ...this.announced.keys()];
       this.incoming.clear();
+      this.announced.clear();
+      for (const id of rxIds) onRxProgress(this.code, id, null);
+      this.setPeerTyping(false);
+    }
+
+    can(cap) { return !!this.conn && this.peerCaps.has(cap); }
+
+    // Files the peer is sending / about to send (announced + in progress), in arrival order.
+    incomingList() {
+      const out = [...this.announced.values()];
+      for (const rx of this.incoming.values()) if (!rx.skip) out.push(rx.meta);
+      return out;
+    }
+
+    setPeerTyping(on) {
+      clearTimeout(this.typingTimer);
+      this.typingTimer = null;
+      if (on) this.typingTimer = setTimeout(() => this.setPeerTyping(false), 6000);
+      if (this.peerTyping === !!on) return;
+      this.peerTyping = !!on;
+      onTyping(this);
+    }
+
+    // Tell the peer which files are coming (cap 'upload') so it can show placeholders right away.
+    announce(ms) {
+      if (!this.conn || !this.synced || !this.peerCaps.has('upload')) return;
+      const items = ms.filter((m) => m.type === 'file' && !this.annOut.has(m.id))
+        .map((m) => ({ id: m.id, ts: m.ts, fileName: m.fileName, mime: m.mime, size: m.size }));
+      for (let i = 0; i < items.length; i += 200) {
+        const part = items.slice(i, i + 200);
+        if (this.sendJSON({ t: 'upload', items: part })) for (const it of part) this.annOut.add(it.id);
+      }
     }
 
     ping() {
@@ -579,7 +614,7 @@
 
     async sendHello(nameOnly) {
       const conn = this.conn;
-      if (!this.sendJSON({ t: 'hello', v: 1, name: settings.deviceName, sync: !nameOnly })) return;
+      if (!this.sendJSON({ t: 'hello', v: 1, name: settings.deviceName, sync: !nameOnly, caps: CAPS })) return;
       if (nameOnly) return;
       const [msgs, tombs] = await Promise.all([roomMessages(this.code), roomTombs(this.code)]);
       if (conn !== this.conn) return;
@@ -606,10 +641,19 @@
           this.sendJSON({ t: 'file-abort', id });
           this.sendJSON({ t: 'ack', id });
         }
+        if (this.announced.has(id)) {
+          // announced but not started: the tombstone makes us refuse it when file-start arrives
+          this.announced.delete(id);
+          onRxProgress(this.code, id, null);
+        }
       }
       if (this.queue.some((m) => set.has(m.id))) {
         this.queue = this.queue.filter((m) => !set.has(m.id));
-        for (const id of set) this.queued.delete(id);
+        for (const id of set) {
+          this.queued.delete(id);
+          // announced queued file withdrawn -> remove the receiver's placeholder
+          if (this.annOut.delete(id)) this.sendJSON({ t: 'file-abort', id });
+        }
       }
       if (this.sending && set.has(this.sending.id)) this.cancelled.add(this.sending.id);
     }
@@ -649,6 +693,7 @@
           const m = sanitizeMeta(o.m, this.code, this.otherSlot);
           if (!m || m.type !== 'text') return;
           m.rts = Date.now();
+          this.setPeerTyping(false);
           const exists = await dbGet('messages', m.id);
           if (!exists) {
             m.status = 'delivered';
@@ -660,19 +705,37 @@
         case 'file-start': {
           const m = sanitizeMeta(o.m, this.code, this.otherSlot);
           if (!m || m.type !== 'file') return;
+          const wasAnnounced = this.announced.delete(m.id);
           if (await getTomb(this.code, m.id)) {
             // deleted here: refuse the transfer, but ack so the sender considers it handled
             this.sendJSON({ t: 'file-abort', id: m.id });
             this.sendJSON({ t: 'ack', id: m.id });
             this.incoming.set(m.id, { meta: m, skip: true });
+            if (wasAnnounced) onRxProgress(this.code, m.id, null);
             return;
           }
           const exists = await dbGet('messages', m.id);
           const rx = { meta: m, parts: [], cur: [], curSize: 0, received: 0, next: 0, skip: !!exists, lastUi: 0 };
           this.incoming.set(m.id, rx);
           if (!exists) onRxProgress(this.code, m.id, rx);
+          else if (wasAnnounced) onRxProgress(this.code, m.id, null);
           break;
         }
+        case 'upload': {
+          // cap 'upload': placeholders for files the peer is about to send
+          if (!Array.isArray(o.items)) return;
+          const added = [];
+          for (const it of o.items.slice(0, 1000)) {
+            const m = sanitizeMeta(Object.assign({}, it, { type: 'file' }), this.code, this.otherSlot);
+            if (!m || this.incoming.has(m.id) || this.announced.has(m.id)) continue;
+            if (await getTomb(this.code, m.id) || await dbGet('messages', m.id)) continue;
+            this.announced.set(m.id, m);
+            added.push(m.id);
+          }
+          if (added.length) onAnnounce(this.code, added);
+          break;
+        }
+        case 'typing': this.setPeerTyping(!!o.on); break;
         case 'file-end': {
           const rx = this.incoming.get(o.id);
           if (!rx) return;
@@ -690,13 +753,14 @@
           m.status = 'delivered';
           m.rts = Date.now();
           const stored = await storeIncoming(this.code, m, blob);
+          if (stored) onNewMessage(m); // replaces the placeholder in place
           onRxProgress(this.code, m.id, null);
-          if (stored) onNewMessage(m);
           this.sendJSON({ t: 'ack', id: m.id });
           break;
         }
         case 'file-abort': {
           if (this.incoming.has(o.id)) { this.incoming.delete(o.id); onRxProgress(this.code, o.id, null); }
+          if (this.announced.delete(o.id)) onRxProgress(this.code, o.id, null);
           // receiver refused / dropped our transfer -> stop sending chunks
           if (this.sending && this.sending.id === o.id) this.cancelled.add(o.id);
           if (this.queued.has(o.id)) { this.queue = this.queue.filter((m) => m.id !== o.id); this.queued.delete(o.id); }
@@ -752,6 +816,7 @@
 
     async onHello(o) {
       this.room.peerName = String(o.name || '').slice(0, 60);
+      this.peerCaps = new Set(Array.isArray(o.caps) ? o.caps.filter((x) => typeof x === 'string').slice(0, 32) : []);
       rooms.set(this.code, this.room);
       dbPut('rooms', this.room).catch(() => {});
       onConnState(this);
@@ -790,6 +855,8 @@
       if (this.queued.has(m.id)) return;
       this.queued.add(m.id);
       this.queue.push(m);
+      this.announce([m]);
+      onTxProgress(this.code, m.id, { sent: 0, size: m.size, queued: true });
       this.pump();
     }
 
@@ -813,6 +880,7 @@
             this.cancelled.delete(m.id);
             if (gen === this.gen) {
               this.queued.delete(m.id);
+              this.annOut.delete(m.id);
               if (this.sending && this.sending.id === m.id) this.sending = null;
               onTxProgress(this.code, m.id, null);
             }
@@ -878,6 +946,7 @@
 
     stop() {
       this.stopped = true;
+      clearTimeout(this.typingTimer);
       clearInterval(this.tickTimer);
       clearInterval(this.pingTimer);
       clearTimeout(this.retryTimer);
@@ -952,9 +1021,26 @@
   async function sendFiles(files) {
     if (!current || !files) return;
     const code = current;
-    for (const f of Array.from(files)) {
-      const name = f.name || ('pasted-' + new Date().toISOString().replace(/[:.]/g, '-') + extFromMime(f.type));
-      await createMessage(code, { type: 'file', fileName: name, mime: f.type || '', size: f.size }, f);
+    const now = Date.now();
+    const items = Array.from(files).map((f, i) => ({
+      f,
+      partial: {
+        id: uuid(), ts: now + i, rts: now + i, type: 'file', mime: f.type || '', size: f.size,
+        fileName: f.name || ('pasted-' + new Date().toISOString().replace(/[:.]/g, '-') + extFromMime(f.type))
+      }
+    }));
+    if (!items.length) return;
+    // Announce everything first, so the other side sees placeholders while blobs are still being stored.
+    const rc = conns.get(code);
+    if (rc) rc.announce(items.map((x) => x.partial));
+    for (const { f, partial } of items) {
+      try {
+        await createMessage(code, partial, f);
+      } catch (e) {
+        console.error('could not store file', e);
+        toast('Could not send ' + partial.fileName + ': ' + (e && e.message ? e.message : e), null, 5000, 'alert');
+        if (rc && rc.annOut.delete(partial.id)) rc.sendJSON({ t: 'file-abort', id: partial.id });
+      }
     }
   }
   function extFromMime(m) {
@@ -962,13 +1048,93 @@
     return map[m] || '';
   }
 
+  // ================================================================ UI: icons (inline SVG, Lucide-style)
+  const ICONS = {
+    'settings': '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+    'chevron-left': '<path d="m15 18-6-6 6-6"/>',
+    'chevron-down': '<path d="m6 9 6 6 6-6"/>',
+    'more-vertical': '<circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/>',
+    'more': '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+    'x': '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+    'paperclip': '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
+    'send': '<path d="M14.54 21.69a.5.5 0 0 0 .94-.03l6.5-19a.5.5 0 0 0-.64-.64l-19 6.5a.5.5 0 0 0-.03.94l7.93 3.18a2 2 0 0 1 1.11 1.11z"/><path d="m21.85 2.15-10.94 10.94"/>',
+    'download': '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
+    'upload': '<path d="M4 14.9A7 7 0 1 1 15.7 8h1.8a4.5 4.5 0 0 1 2.5 8.24"/><path d="M12 12v9"/><path d="m16 16-4-4-4 4"/>',
+    'copy': '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
+    'trash': '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/>',
+    'user': '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+    'users': '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+    'folder': '<path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/>',
+    'external': '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+    'check': '<path d="M20 6 9 17l-5-5"/>',
+    'check-check': '<path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/>',
+    'clock': '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+    'image': '<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21"/>',
+    'video': '<path d="m16 13 5.22 3.48a.5.5 0 0 0 .78-.42V7.94a.5.5 0 0 0-.76-.43L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/>',
+    'file': '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>',
+    'plus': '<path d="M5 12h14"/><path d="M12 5v14"/>',
+    'log-in': '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="m10 17 5-5-5-5"/><path d="M15 12H3"/>',
+    'pencil': '<path d="M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/><path d="m15 5 4 4"/>',
+    'hash': '<path d="M4 9h16"/><path d="M4 15h16"/><path d="M10 3 8 21"/><path d="M16 3l-2 18"/>',
+    'circle-check': '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+    'sun': '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>',
+    'moon': '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
+    'monitor': '<rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>',
+    'play': '<path d="M7 4.5v15a1 1 0 0 0 1.52.85l12-7.5a1 1 0 0 0 0-1.7l-12-7.5A1 1 0 0 0 7 4.5Z" fill="currentColor"/>',
+    'info': '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+    'alert': '<circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/>',
+    'monitor-off': '<path d="M12 20h.01"/><path d="M8.5 16.43a5 5 0 0 1 7 0"/><path d="M5 12.86a10 10 0 0 1 5.17-2.69"/><path d="M19 12.86a10 10 0 0 0-2-1.52"/><path d="M2 8.82a15 15 0 0 1 4.18-2.64"/><path d="M22 8.82a15 15 0 0 0-11.29-3.76"/><path d="m2 2 20 20"/>'
+  };
+  function svg(name, size, cls) {
+    const s = size || 20;
+    return '<svg class="ic' + (cls ? ' ' + cls : '') + '" viewBox="0 0 24 24" width="' + s + '" height="' + s +
+      '" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      (ICONS[name] || '') + '</svg>';
+  }
+  function iconBtn(name, title, cls, size) {
+    const b = el('button', 'icon-btn' + (cls ? ' ' + cls : ''));
+    b.type = 'button';
+    b.title = title;
+    b.setAttribute('aria-label', title);
+    b.innerHTML = svg(name, size || 18);
+    return b;
+  }
+  function hydrateIcons(root) {
+    for (const e of (root || document).querySelectorAll('[data-icon]')) {
+      if (e.querySelector(':scope > svg.ic')) continue;
+      e.insertAdjacentHTML('afterbegin', svg(e.dataset.icon, Number(e.dataset.size) || 20));
+    }
+  }
+
+  // ================================================================ UI: theme + layout
+  function themePref() { const t = lsGet('theme', 'system'); return t === 'dark' || t === 'light' ? t : 'system'; }
+  function applyTheme() {
+    const t = themePref();
+    if (t === 'system') document.documentElement.removeAttribute('data-theme');
+    else document.documentElement.setAttribute('data-theme', t);
+    const light = t === 'light' || (t === 'system' && window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches);
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.content = light ? '#ffffff' : '#0f1218';
+  }
+  applyTheme();
+  if (window.matchMedia) {
+    const mq = matchMedia('(prefers-color-scheme: light)');
+    if (mq.addEventListener) mq.addEventListener('change', applyTheme);
+  }
+  const wideMq = window.matchMedia ? matchMedia('(min-width: 900px)') : { matches: false };
+  const isWide = () => wideMq.matches;
+  const homeVisible = () => isWide() || $('#home').classList.contains('active');
+  const reduceMotion = () => !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+
   // ================================================================ UI: screens
   function show(id) {
     for (const s of document.querySelectorAll('.screen')) s.classList.toggle('active', s.id === id);
+    document.body.classList.toggle('in-chat', id === 'chat');
   }
 
   async function goHome() {
     exitSelect();
+    stopTyping();
     current = null;
     closeViewer();
     revokeUrls();
@@ -983,37 +1149,97 @@
     ui.els.clear();
   }
 
+  // ---------- avatars / small formatters
+  function hashStr(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h); }
+  function initials(r) {
+    const n = String(r.name || '').trim();
+    if (!n || /^Room [A-Z0-9]{4}-[A-Z0-9]{4}$/.test(n)) return r.code.slice(0, 2);
+    const w = n.split(/\s+/).filter(Boolean);
+    const a = [...(w[0] || '')][0] || '#';
+    const b = w.length > 1 ? ([...w[1]][0] || '') : '';
+    return (a + b).toUpperCase();
+  }
+  function fillAvatar(av, r, state) {
+    const h = hashStr(r.code) % 360;
+    av.style.setProperty('--h1', h);
+    av.style.setProperty('--h2', (h + 40) % 360);
+    av.textContent = initials(r);
+    const d = el('span', 'presence ' + (state || 'connecting'));
+    av.appendChild(d);
+  }
+  function fmtShort(ts) {
+    const d = new Date(ts), now = new Date();
+    if (d.toDateString() === now.toDateString()) return fmtTime(ts);
+    const y = new Date(now); y.setDate(now.getDate() - 1);
+    if (d.toDateString() === y.toDateString()) return 'Yesterday';
+    if (now - d < 6 * 86400000) return d.toLocaleDateString(undefined, { weekday: 'short' });
+    return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  }
+  const kindNoun = (k) => (k === 'image' ? 'photo' : k === 'video' ? 'video' : 'file');
+
   // ---------- home
+  let homeTimer = null;
+  function scheduleHome() {
+    if (homeTimer || !homeVisible()) return;
+    homeTimer = setTimeout(() => { homeTimer = null; renderHome(); }, 60);
+  }
   async function renderHome() {
     const list = $('#roomList');
     list.innerHTML = '';
     const arr = [...rooms.values()].sort((a, b) => (lastTs(b) - lastTs(a)));
     $('#emptyHome').hidden = arr.length > 0;
-    for (const r of arr) {
-      const li = el('li', 'room');
-      li.dataset.code = r.code;
-      const av = el('div', 'room-avatar', (r.name || '?').trim().charAt(0).toUpperCase() || '#');
-      const dot = el('span', 'dot ' + stateOf(r.code));
-      av.appendChild(dot);
-      const info = el('div', 'room-info');
-      info.appendChild(el('div', 'room-name', r.name));
-      const lm = lastMsg.get(r.code);
-      info.appendChild(el('div', 'room-last', lm ? previewText(lm, r) : stateLabel(r.code)));
-      info.appendChild(el('div', 'room-code', fmtCode(r.code) + (r.peerName ? ' · ' + r.peerName : '')));
-      const more = el('button', 'icon-btn');
-      more.title = 'Room options';
-      more.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M12 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm0 6a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z"/></svg>';
-      more.onclick = (e) => { e.stopPropagation(); roomMenu(r, more); };
-      li.append(av, info, more);
-      li.onclick = () => openChat(r.code);
-      list.appendChild(li);
+    for (const r of arr) list.appendChild(roomItem(r));
+  }
+  function roomItem(r) {
+    const li = el('li', 'room' + (r.code === current ? ' active' : ''));
+    li.dataset.code = r.code;
+    li.tabIndex = 0;
+    const av = el('div', 'avatar');
+    fillAvatar(av, r, stateOf(r.code));
+    const info = el('div', 'room-info');
+    const l1 = el('div', 'room-line');
+    const lm = lastMsg.get(r.code);
+    l1.append(el('span', 'room-name', r.name), el('span', 'room-time', lm ? fmtShort(lm.ts) : ''));
+    const l2 = el('div', 'room-line');
+    const last = el('span', 'room-last');
+    l2.appendChild(last);
+    info.append(l1, l2);
+    fillRoomLast(last, r);
+    const more = iconBtn('more-vertical', 'Room options', 'room-more');
+    more.onclick = (e) => { e.stopPropagation(); roomMenu(r, more); };
+    li.append(av, info, more);
+    li.onclick = () => openChat(r.code);
+    li.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openChat(r.code); } };
+    return li;
+  }
+  function fillRoomLast(node, r) {
+    const act = activityText(r.code);
+    node.classList.toggle('activity', !!act);
+    node.innerHTML = '';
+    if (act) { node.textContent = act; return; }
+    const lm = lastMsg.get(r.code);
+    if (!lm) { node.textContent = stateLabel(r.code); return; }
+    if (lm.from === r.slot) node.appendChild(el('span', 'you', 'You: '));
+    if (lm.type === 'text') node.appendChild(document.createTextNode(lm.text.split('\n')[0]));
+    else {
+      const k = fileKind(lm.mime, lm.fileName);
+      node.insertAdjacentHTML('beforeend', svg(k === 'image' ? 'image' : k === 'video' ? 'video' : 'file', 14, 'inline'));
+      node.appendChild(document.createTextNode(' ' + (k === 'file' ? lm.fileName : k === 'image' ? 'Photo' : 'Video')));
     }
   }
-  function lastTs(r) { const m = lastMsg.get(r.code); return m ? m.ts : (r.created || 0); }
-  function previewText(m, r) {
-    const me = m.from === r.slot ? 'You: ' : '';
-    return me + (m.type === 'text' ? m.text.split('\n')[0] : '\u{1F4CE} ' + m.fileName);
+  function updateRoomRow(code) {
+    if (!homeVisible()) return;
+    const li = $('#roomList .room[data-code="' + code + '"]');
+    const r = rooms.get(code);
+    if (!li || !r) return;
+    const p = li.querySelector('.presence');
+    if (p) p.className = 'presence ' + stateOf(code);
+    fillRoomLast(li.querySelector('.room-last'), r);
   }
+  function markActiveRoom() {
+    for (const li of document.querySelectorAll('#roomList .room')) li.classList.toggle('active', li.dataset.code === current);
+  }
+  function lastTs(r) { const m = lastMsg.get(r.code); return m ? m.ts : (r.created || 0); }
   function stateOf(code) { const c = conns.get(code); return c ? c.state : 'connecting'; }
   function stateLabel(code) {
     const s = stateOf(code);
@@ -1022,36 +1248,60 @@
 
   function roomMenu(r, anchor) {
     openMenu(anchor, [
-      { label: 'Show code', fn: () => showCode(r, false) },
-      { label: 'Rename', fn: () => renameRoom(r) },
-      { label: 'Clear chat for everyone', danger: true, fn: () => clearChat(r) },
-      { label: 'Delete', danger: true, fn: () => deleteRoom(r) }
+      { icon: 'hash', label: 'Show code', fn: () => showCode(r, false) },
+      { icon: 'pencil', label: 'Rename', fn: () => renameRoom(r) },
+      { sep: true },
+      { icon: 'trash', label: 'Remove from this device', danger: true, fn: () => deleteRoom(r) }
     ]);
   }
 
-  function openMenu(anchor, items) {
+  // ---------- popup menu
+  let menuClose = null;
+  function openMenu(anchor, items, onClose) {
     closeMenu();
     const m = el('div', 'menu');
     m.id = 'menu';
+    m.setAttribute('role', 'menu');
     for (const it of items) {
-      const b = el('button', it.danger ? 'danger' : '', it.label);
+      if (it.sep) { m.appendChild(el('div', 'menu-sep')); continue; }
+      if (it.title) { m.appendChild(el('div', 'menu-title', it.title)); continue; }
+      const b = el('button', it.danger ? 'danger' : '');
+      b.type = 'button';
+      b.setAttribute('role', 'menuitem');
+      if (it.icon) b.insertAdjacentHTML('afterbegin', svg(it.icon, 17));
+      b.appendChild(el('span', null, it.label));
       b.onclick = (e) => { e.stopPropagation(); closeMenu(); it.fn(); };
       m.appendChild(b);
     }
     document.body.appendChild(m);
+    menuClose = onClose || null;
     const rc = anchor.getBoundingClientRect();
     const w = m.offsetWidth, h = m.offsetHeight;
-    m.style.left = Math.max(8, Math.min(innerWidth - w - 8, rc.right - w)) + 'px';
-    m.style.top = (rc.bottom + h + 8 > innerHeight ? Math.max(8, rc.top - h - 4) : rc.bottom + 4) + 'px';
+    // open towards the side with more room (left-aligned for anchors in the left half)
+    const alignLeft = rc.right - rc.left > 0 && rc.right - rc.left < 200 && (rc.left + rc.right) / 2 < innerWidth / 2 && rc.left > 300;
+    const left = Math.max(8, Math.min(innerWidth - w - 8, alignLeft ? rc.left : rc.right - w));
+    const below = rc.bottom + h + 8 <= innerHeight;
+    m.style.left = left + 'px';
+    m.style.top = (below ? rc.bottom + 4 : Math.max(8, rc.top - h - 4)) + 'px';
+    m.style.transformOrigin = (rc.right - left > w / 2 ? 'right ' : 'left ') + (below ? 'top' : 'bottom');
+    const first = m.querySelector('button');
+    if (first && !isTouch) first.focus({ preventScroll: true });
     setTimeout(() => document.addEventListener('click', closeMenu, { once: true }), 0);
   }
-  function closeMenu() { const m = $('#menu'); if (m) m.remove(); }
+  function closeMenu() {
+    const m = $('#menu');
+    if (m) m.remove();
+    const f = menuClose; menuClose = null;
+    if (f) f();
+  }
 
   // ---------- modal
-  function openModal(build) {
+  function openModal(build, cls) {
     const body = $('#modalBody');
     body.innerHTML = '';
+    $('#dialog').className = 'dialog' + (cls ? ' ' + cls : '');
     build(body);
+    hydrateIcons(body);
     $('#modal').hidden = false;
     const f = body.querySelector('input, textarea');
     if (f && !isTouch) setTimeout(() => f.focus(), 30);
@@ -1063,7 +1313,7 @@
         b.appendChild(el('h3', null, title));
         b.appendChild(el('p', null, text));
         const row = el('div', 'row');
-        const cancel = el('button', 'btn', 'Cancel');
+        const cancel = el('button', 'btn ghost', 'Cancel');
         const ok = el('button', 'btn ' + (danger ? 'danger' : 'primary'), okLabel);
         cancel.onclick = () => { closeModal(); resolve(false); };
         ok.onclick = () => { closeModal(); resolve(true); };
@@ -1081,7 +1331,7 @@
         inp.value = value || '';
         inp.maxLength = 60;
         const row = el('div', 'row');
-        const cancel = el('button', 'btn', 'Cancel');
+        const cancel = el('button', 'btn ghost', 'Cancel');
         const ok = el('button', 'btn primary', okLabel || 'OK');
         cancel.onclick = () => { closeModal(); resolve(null); };
         ok.onclick = () => { closeModal(); resolve(inp.value.trim()); };
@@ -1104,35 +1354,65 @@
     showCode(r, true);
   }
 
+  function codeChips(code) {
+    const w = el('div', 'code-chips');
+    w.setAttribute('aria-label', fmtCode(code));
+    [...code].forEach((ch, i) => {
+      if (i === 4) w.appendChild(el('span', 'code-dash'));
+      const c = el('span', 'code-chip', ch);
+      c.style.animationDelay = (i * 35) + 'ms';
+      w.appendChild(c);
+    });
+    return w;
+  }
+
   function showCode(r, isNew) {
     openModal((b) => {
-      b.appendChild(el('h3', null, isNew ? 'Room created' : r.name));
+      const head = el('div', 'dlg-head');
+      head.innerHTML = svg(isNew ? 'circle-check' : 'hash', 22);
+      head.appendChild(el('h3', null, isNew ? 'Room created' : r.name));
+      b.appendChild(head);
       b.appendChild(el('p', null, r.slot === 1
-        ? 'Type this code on your other device (Join room) to connect it to this room.'
+        ? 'On your other device choose Join room and enter this code.'
         : 'This device joined the room with this code.'));
-      b.appendChild(el('div', 'code-big', fmtCode(r.code)));
+      const box = el('div', 'code-box');
+      box.appendChild(codeChips(r.code));
+      const copy = iconBtn('copy', 'Copy code', 'code-copy', 19);
+      copy.onclick = async () => {
+        await P.copyText(fmtCode(r.code));
+        copy.innerHTML = svg('check', 19);
+        copy.classList.add('done');
+        toast('Code copied', null, 1800, 'check');
+        setTimeout(() => { copy.innerHTML = svg('copy', 19); copy.classList.remove('done'); }, 1600);
+      };
+      box.appendChild(copy);
+      b.appendChild(box);
       const row = el('div', 'row');
-      const copy = el('button', 'btn', 'Copy code');
-      copy.onclick = async () => { await P.copyText(fmtCode(r.code)); toast('Code copied'); };
-      const open = el('button', 'btn primary', 'Open chat');
-      open.onclick = () => { closeModal(); openChat(r.code); };
-      row.append(copy, open);
+      const close = el('button', 'btn ghost', 'Close');
+      close.onclick = closeModal;
+      const open = el('button', 'btn primary', current === r.code ? 'Done' : 'Open chat');
+      open.onclick = () => { closeModal(); if (current !== r.code) openChat(r.code); };
+      row.append(close, open);
       b.appendChild(row);
     });
   }
 
   function joinRoom() {
     openModal((b) => {
-      b.appendChild(el('h3', null, 'Join room'));
+      const head = el('div', 'dlg-head');
+      head.innerHTML = svg('log-in', 22);
+      head.appendChild(el('h3', null, 'Join room'));
+      b.appendChild(head);
       b.appendChild(el('p', null, 'Enter the 8-character code shown on your other device.'));
       const inp = el('input', 'code-input');
       inp.placeholder = 'XXXX-XXXX';
       inp.autocapitalize = 'characters';
+      inp.autocomplete = 'off';
       inp.spellcheck = false;
       inp.maxLength = 12;
       const err = el('div', 'err');
       const row = el('div', 'row');
-      const cancel = el('button', 'btn', 'Cancel');
+      const cancel = el('button', 'btn ghost', 'Cancel');
       const ok = el('button', 'btn primary', 'Join');
       cancel.onclick = closeModal;
       const go = async () => {
@@ -1161,17 +1441,18 @@
   }
 
   async function renameRoom(r) {
-    const name = await promptDialog('Rename room', 'Name', r.name, 'Save');
+    const name = await promptDialog('Rename room', 'Name (only on this device)', r.name, 'Save');
     if (!name) return;
     r.name = name;
     await dbPut('rooms', r);
     if (current === r.code) renderChatHeader();
-    else renderHome();
+    scheduleHome();
   }
 
   // ---------- deleting messages
   function peerLabel(code) { const r = rooms.get(code); return (r && r.peerName) || 'the other device'; }
 
+  // Used for multi-select (several messages at once): asks first.
   async function confirmDelete(code, ids, everyone) {
     ids = [...new Set(ids)];
     const n = ids.length;
@@ -1188,32 +1469,22 @@
     if (hasFile) text += ' Saved copies in Downloads are kept.';
     const ok = await confirmDialog(title, text, 'Delete', true);
     if (!ok) return false;
-    try {
-      await deleteMessages(code, ids, everyone);
-      toast(n === 1 ? 'Message deleted' : n + ' messages deleted');
-    } catch (e) { console.error('delete failed', e); toast('Delete failed: ' + (e && e.message ? e.message : e), null, 5000); }
+    await deleteNow(code, ids, everyone);
     return true;
   }
-
-  async function clearChat(r) {
-    const ok = await confirmDialog('Clear chat for everyone?',
-      'Deletes every message in "' + r.name + '" on this device and on ' + peerLabel(r.code) +
-      ' (as soon as it reconnects, if it is offline). Saved copies in Downloads are kept.', 'Clear chat', true);
-    if (!ok) return;
+  // Single message from the action bar / long-press menu: the menu choice itself is the confirmation.
+  async function deleteNow(code, ids, everyone) {
+    const n = ids.length;
     try {
-      const [msgs, tombs] = await Promise.all([roomMessages(r.code), roomTombs(r.code)]);
-      const rc = conns.get(r.code);
-      const ids = msgs.map((m) => m.id)
-        .concat(tombs.filter((t) => !t.everyone).map((t) => t.id)) // earlier "delete for me" -> now for everyone too
-        .concat(rc ? [...rc.incoming.keys()] : []);
-      if (current === r.code) exitSelect();
-      await deleteMessages(r.code, ids, true);
-      toast('Chat cleared');
-    } catch (e) { console.error('clear failed', e); toast('Clear failed: ' + (e && e.message ? e.message : e), null, 5000); }
+      await deleteMessages(code, ids, everyone);
+      toast((n === 1 ? 'Message deleted' : n + ' messages deleted') + (everyone ? ' for everyone' : ' for you'), null, 2200, 'trash');
+    } catch (e) { console.error('delete failed', e); toast('Delete failed: ' + (e && e.message ? e.message : e), null, 5000, 'alert'); }
   }
 
   async function deleteRoom(r) {
-    const ok = await confirmDialog('Delete room?', 'This deletes "' + r.name + '" and its whole message history on this device. The other device keeps its copy.', 'Delete', true);
+    const ok = await confirmDialog('Remove room from this device?',
+      'Removes "' + r.name + '" and its message history from this device only. Nothing is deleted for ' + peerLabel(r.code) +
+      ' — it keeps the room and all messages. You can re-join later with the code.', 'Remove', true);
     if (!ok) return;
     const c = conns.get(r.code);
     if (c) c.stop();
@@ -1223,16 +1494,43 @@
     await deleteRoomData(r.code);
     if (current === r.code) await goHome();
     else renderHome();
+    toast('Room removed from this device', null, 2400, 'check');
   }
 
   // ---------- settings
   function openSettings() {
     openModal((b) => {
       b.appendChild(el('h3', null, 'Settings'));
-      const l1 = el('label', null, 'Device name (shown to the other device)');
+      const sec1 = el('div', 'set-section');
+      sec1.appendChild(el('label', null, 'Device name (shown to the other device)'));
       const name = el('input');
       name.value = settings.deviceName;
       name.maxLength = 40;
+      sec1.appendChild(name);
+
+      const sec2 = el('div', 'set-section');
+      sec2.appendChild(el('label', null, 'Appearance'));
+      const seg = el('div', 'segmented');
+      seg.setAttribute('role', 'radiogroup');
+      for (const [val, ic, lab] of [['system', 'monitor', 'System'], ['dark', 'moon', 'Dark'], ['light', 'sun', 'Light']]) {
+        const o = el('button', 'seg' + (themePref() === val ? ' on' : ''));
+        o.type = 'button';
+        o.setAttribute('role', 'radio');
+        o.setAttribute('aria-checked', String(themePref() === val));
+        o.innerHTML = svg(ic, 16);
+        o.appendChild(el('span', null, lab));
+        o.onclick = () => {
+          lsSet('theme', val);
+          applyTheme();
+          for (const x of seg.children) { x.classList.toggle('on', x === o); x.setAttribute('aria-checked', String(x === o)); }
+        };
+        seg.appendChild(o);
+      }
+      sec2.appendChild(seg);
+
+      const adv = el('details', 'set-adv');
+      if (settings.turnJson.trim()) adv.open = true;
+      adv.appendChild(el('summary', null, 'Connection · TURN servers'));
       const l2 = el('label', null, 'TURN servers (optional, JSON array of RTCIceServer)');
       const ta = el('textarea');
       ta.spellcheck = false;
@@ -1240,10 +1538,12 @@
       ta.value = settings.turnJson;
       const hint = el('p', 'hint');
       hint.innerHTML = 'Usually not needed. On some mobile networks a direct connection is impossible and the devices never connect — then a TURN relay is required, e.g. a free <b>metered.ca</b> account. Paste its ICE server list here on <b>both</b> devices.';
+      adv.append(l2, ta, hint);
+
       const err = el('div', 'err');
       const info = el('p', 'hint', 'Platform: ' + P.kind + (PROFILE ? ' · profile ' + PROFILE : ''));
       const row = el('div', 'row');
-      const cancel = el('button', 'btn', 'Cancel');
+      const cancel = el('button', 'btn ghost', 'Cancel');
       const save = el('button', 'btn primary', 'Save');
       cancel.onclick = closeModal;
       save.onclick = () => {
@@ -1252,20 +1552,20 @@
           try {
             const a = JSON.parse(t);
             if (!Array.isArray(a) || !a.every((x) => x && (typeof x.urls === 'string' || Array.isArray(x.urls)))) throw new Error('Must be an array of objects with "urls"');
-          } catch (e) { err.textContent = 'Invalid JSON: ' + e.message; return; }
+          } catch (e) { err.textContent = 'Invalid JSON: ' + e.message; adv.open = true; return; }
         }
         const turnChanged = t !== settings.turnJson.trim();
         const nameChanged = name.value.trim() !== settings.deviceName;
         settings.deviceName = name.value.trim() || settings.deviceName;
         settings.turnJson = t;
         closeModal();
-        toast('Settings saved');
+        toast('Settings saved', null, 2000, 'check');
         if (turnChanged) restartAll();
         else if (nameChanged) for (const c of conns.values()) if (c.conn) c.sendHello(true);
       };
       row.append(cancel, save);
-      b.append(l1, name, l2, ta, hint, err, info, row);
-    });
+      b.append(sec1, sec2, adv, err, info, row);
+    }, 'sheet');
   }
   function restartAll() {
     for (const [code, c] of conns) { c.stop(); conns.delete(code); }
@@ -1278,33 +1578,70 @@
     if (!r) return;
     closeMenu();
     exitSelect();
+    if (current && current !== code) stopTyping();
     revokeUrls();
     current = code;
+    ui.unread = 0;
+    ui.barState = null;
     show('chat');
+    markActiveRoom();
     renderChatHeader();
     const box = $('#messages');
     box.innerHTML = '';
+    box.classList.add('loading');
     const inner = el('div', 'inner');
-    box.appendChild(inner);
+    const live = el('div', 'live');
+    live.id = 'live';
+    box.append(inner, live);
     const msgs = await roomMessages(code);
     if (current !== code) return;
     ui.msgs = msgs;
     if (!msgs.length) inner.appendChild(emptyChatEl());
     let prev = null;
     for (const m of msgs) { appendMessage(m, prev, inner); prev = m; }
-    // show in-progress receives
+    regroup();
+    // show in-progress transfers
     const rc = conns.get(code);
     if (rc) {
+      for (const id of rc.announced.keys()) renderPlaceholder(code, id);
       for (const [id, rx] of rc.incoming) if (!rx.skip) onRxProgress(code, id, rx);
+      for (const m of rc.queue) onTxProgress(code, m.id, { sent: 0, size: m.size, queued: true });
       if (rc.sending) onTxProgress(code, rc.sending.id, rc.sending);
+      renderTyping();
     }
+    updateFab();
     scrollBottom(true);
+    requestAnimationFrame(() => box.classList.remove('loading'));
     if (!isTouch) $('#input').focus();
   }
   function emptyChatEl() {
-    const e = el('div', 'empty-chat', 'No messages yet. Say hi! Files, photos and videos are sent in full quality.');
+    const e = el('div', 'empty-chat');
     e.id = 'emptyChat';
+    e.innerHTML = '<svg class="illus" viewBox="0 0 160 120" width="150" height="112" aria-hidden="true">' +
+      '<defs><linearGradient id="ig3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4f7cff"/><stop offset="1" stop-color="#8a5cff"/></linearGradient></defs>' +
+      '<ellipse cx="80" cy="108" rx="50" ry="6" class="illus-shadow"/>' +
+      '<rect x="18" y="20" width="78" height="34" rx="17" class="illus-bubble"/>' +
+      '<rect x="62" y="62" width="80" height="34" rx="17" fill="url(#ig3)"/>' +
+      '<circle cx="40" cy="37" r="4" class="illus-dot"/><circle cx="57" cy="37" r="4" class="illus-dot"/><circle cx="74" cy="37" r="4" class="illus-dot"/>' +
+      '<path d="M88 79h30" stroke="#fff" stroke-width="4" stroke-linecap="round"/></svg>';
+    e.appendChild(el('h3', null, 'No messages yet'));
+    e.appendChild(el('p', null, 'Say hi! Photos, videos and files are sent in full quality.'));
     return e;
+  }
+
+  // What the other side is doing right now (typing / sending files), '' if nothing.
+  function activityText(code) {
+    const c = conns.get(code);
+    if (!c || c.state !== 'connected') return '';
+    const ups = c.incomingList();
+    if (ups.length > 1) return ups.length + ' files coming…';
+    if (ups.length === 1) return 'sending a ' + kindNoun(fileKind(ups[0].mime, ups[0].fileName)) + '…';
+    if (c.peerTyping) return 'typing…';
+    return '';
+  }
+  function onActivity(code) {
+    if (code === current) renderChatHeader();
+    updateRoomRow(code);
   }
 
   function renderChatHeader() {
@@ -1313,34 +1650,91 @@
     $('#chatName').textContent = r.name;
     const c = conns.get(current);
     const st = c ? c.state : 'connecting';
-    $('#chatSub').textContent = fmtCode(r.code) + (r.peerName ? ' · ' + r.peerName : '');
-    $('#chatDot').className = 'dot ' + st;
+    const av = $('#chatAvatar');
+    av.innerHTML = '';
+    fillAvatar(av, r, st);
+    const sub = $('#chatSub');
+    const act = activityText(current);
+    sub.className = act ? 'activity' : 'st-' + st;
+    sub.innerHTML = '';
+    if (act) {
+      sub.appendChild(el('span', 'mini-dots', ''));
+      sub.lastChild.innerHTML = '<i></i><i></i><i></i>';
+      sub.appendChild(document.createTextNode(act));
+    } else {
+      sub.textContent = st === 'connected' ? 'online' + (r.peerName ? ' · ' + r.peerName : '')
+        : st === 'waiting' ? 'waiting for ' + (r.peerName || 'other device') + '…' : 'connecting…';
+    }
+    // slim status banner: visible while not connected, flashes "Connected" briefly on (re)connect
     const bar = $('#statusBar');
-    bar.className = 'status-bar ' + st;
     $('#statusText').textContent = st === 'connected'
       ? 'Connected' + (r.peerName ? ' to ' + r.peerName : '')
       : st === 'waiting' ? 'Waiting for other device…' : 'Connecting…';
     let hint = c ? c.hint : '';
     if (!hint && st === 'waiting') hint = 'Open ChatRoom on the other device. Messages are queued and delivered automatically.';
-    $('#statusHint').textContent = hint;
+    $('#statusHint').textContent = st === 'connected' ? '' : hint;
+    const prevSt = ui.barState;
+    ui.barState = st;
+    if (prevSt === st) return;
+    clearTimeout(ui.barTimer);
+    if (st === 'connected') {
+      if (prevSt && prevSt !== 'connected') {
+        bar.className = 'status-bar connected show';
+        ui.barTimer = setTimeout(() => bar.classList.remove('show'), 1800);
+      } else if (prevSt !== 'connected') bar.className = 'status-bar connected';
+    } else {
+      bar.className = 'status-bar ' + st + ' show';
+    }
   }
 
-  function scrollBottom(force) {
+  // ---------- scrolling + floating "scroll to bottom" button
+  function distBottom() { const box = $('#messages'); return box.scrollHeight - box.scrollTop - box.clientHeight; }
+  function scrollBottom(force, smooth) {
     const box = $('#messages');
-    const near = box.scrollHeight - box.scrollTop - box.clientHeight < 160;
-    if (force || near) requestAnimationFrame(() => { box.scrollTop = box.scrollHeight; });
+    if (force || distBottom() < 160) {
+      requestAnimationFrame(() => {
+        if (smooth && !reduceMotion() && box.scrollTo) box.scrollTo({ top: box.scrollHeight, behavior: 'smooth' });
+        else box.scrollTop = box.scrollHeight;
+      });
+    }
+  }
+  function updateFab() {
+    const far = current && distBottom() > 320;
+    if (!far && distBottom() < 60) ui.unread = 0;
+    const fab = $('#scrollDown');
+    fab.hidden = !far;
+    const badge = $('#unreadBadge');
+    badge.hidden = !ui.unread;
+    badge.textContent = ui.unread > 99 ? '99+' : String(ui.unread || '');
   }
 
-  function appendMessage(m, prev, inner) {
+  // ---------- message list
+  const GROUP_MS = 5 * 60 * 1000;
+  const dayKey = (ts) => new Date(ts).toDateString();
+  function sameGroup(a, b) {
+    return !!a && !!b && a.from === b.from && dayKey(a.ts) === dayKey(b.ts) && Math.abs((b.rts || b.ts) - (a.rts || a.ts)) < GROUP_MS;
+  }
+  function applyGroup(i) {
+    const m = ui.msgs[i];
+    const row = m && ui.els.get(m.id);
+    if (!row) return;
+    row.classList.toggle('grp-first', !sameGroup(ui.msgs[i - 1], m));
+    row.classList.toggle('grp-last', !sameGroup(m, ui.msgs[i + 1]));
+  }
+  function regroup() { for (let i = 0; i < ui.msgs.length; i++) applyGroup(i); }
+
+  function appendMessage(m, prev, inner, animate) {
     inner = inner || $('#messages .inner');
     if (!inner) return;
     const ec = $('#emptyChat');
     if (ec) ec.remove();
-    if (!prev || new Date(prev.ts).toDateString() !== new Date(m.ts).toDateString()) {
-      inner.appendChild(el('div', 'day-sep', dayLabel(m.ts)));
+    if (!prev || dayKey(prev.ts) !== dayKey(m.ts)) {
+      const sep = el('div', 'day-sep');
+      sep.appendChild(el('span', null, dayLabel(m.ts)));
+      inner.appendChild(sep);
     }
     const node = buildMessage(m);
-    if (prev && prev.from !== m.from) node.classList.add('gap');
+    if (animate) node.classList.add('enter');
     inner.appendChild(node);
     ui.els.set(m.id, node);
   }
@@ -1352,14 +1746,19 @@
     row.dataset.id = m.id;
     const b = el('div', 'bubble');
     row.appendChild(b);
+    const meta = buildMeta(m, mine);
     if (m.type === 'text') {
+      b.classList.add('is-text');
       const t = el('div', 'text');
       t.appendChild(linkify(m.text));
+      t.appendChild(el('span', 'meta-spacer' + (mine ? ' mine' : '')));
       b.appendChild(t);
+      if (/^\p{Extended_Pictographic}(‍?\p{Extended_Pictographic}|️|\p{Emoji_Modifier}){0,6}$/u.test(m.text.trim())) b.classList.add('jumbo');
+      b.appendChild(meta);
     } else {
-      buildFileContent(b, m, mine);
+      buildFileContent(b, m, mine, meta);
     }
-    b.appendChild(buildMeta(m, mine));
+    row.appendChild(buildActions(row, m));
     attachMsgMenu(row, b, m);
     if (ui.select && ui.select.has(m.id)) row.classList.add('selected');
     return row;
@@ -1367,21 +1766,46 @@
 
   function buildMeta(m, mine) {
     const meta = el('div', 'meta');
-    if (m.type === 'text') {
-      const cp = el('button', 'copy', '⧉');
-      cp.title = 'Copy text';
-      cp.onclick = (e) => { e.stopPropagation(); copyMsg(m.text); };
-      meta.appendChild(cp);
-    }
     meta.appendChild(el('span', 'time', fmtTime(m.ts)));
     if (mine) {
       const s = m.status || 'pending';
-      const tk = el('span', 'tick ' + s, s === 'delivered' ? '✓✓' : s === 'sent' ? '✓' : '◷');
+      const tk = el('span', 'tick ' + s);
+      tk.innerHTML = svg(s === 'delivered' ? 'check-check' : s === 'sent' ? 'check' : 'clock', s === 'pending' ? 12 : 15);
       tk.title = s === 'delivered' ? 'Delivered' : s === 'sent' ? 'Sent' : 'Pending — waiting for the other device';
-      if (s === 'pending') tk.style.letterSpacing = '0';
       meta.appendChild(tk);
     }
     return meta;
+  }
+
+  // Hover action bar (desktop): save · copy · delete (for everyone / for me) · more
+  function buildActions(row, m) {
+    const bar = el('div', 'msg-actions');
+    const keep = (btn, items) => {
+      bar.classList.add('open');
+      openMenu(btn, items, () => bar.classList.remove('open'));
+    };
+    if (m.type === 'file') {
+      const s = iconBtn('download', 'Save', 'act', 17);
+      s.onclick = (e) => { e.stopPropagation(); saveMsg(m); };
+      bar.appendChild(s);
+    } else {
+      const c = iconBtn('copy', 'Copy text', 'act', 17);
+      c.onclick = (e) => { e.stopPropagation(); copyMsg(m.text); };
+      bar.appendChild(c);
+    }
+    const d = iconBtn('trash', 'Delete', 'act', 17);
+    d.onclick = (e) => { e.stopPropagation(); keep(d, deleteItems(m)); };
+    const more = iconBtn('more', 'More', 'act', 17);
+    more.onclick = (e) => { e.stopPropagation(); keep(more, msgMenuItems(m)); };
+    bar.append(d, more);
+    return bar;
+  }
+  function deleteItems(m) {
+    return [
+      { title: 'Delete message' },
+      { icon: 'users', label: 'Delete for everyone', danger: true, fn: () => deleteNow(m.room, [m.id], true) },
+      { icon: 'user', label: 'Delete for me', danger: true, fn: () => deleteNow(m.room, [m.id], false) }
+    ];
   }
 
   // ---------- message menu (right-click / long-press) + multi-select
@@ -1390,12 +1814,18 @@
   function msgMenuItems(m, partial) {
     const items = [];
     if (!partial) {
-      if (m.type === 'text') items.push({ label: 'Copy text', fn: () => copyMsg(m.text) });
-      else items.push({ label: 'Save', fn: () => saveMsg(m) });
-      items.push({ label: 'Select', fn: () => enterSelect(m.id) });
+      if (m.type === 'text') items.push({ icon: 'copy', label: 'Copy text', fn: () => copyMsg(m.text) });
+      else {
+        items.push({ icon: 'download', label: 'Save', fn: () => saveMsg(m) });
+        const saved = ui.savedPaths.get(m.id);
+        if (saved && P.canOpenPath) items.push({ icon: 'external', label: 'Open', fn: () => P.openPath(saved) });
+        if (saved && P.canShowInFolder) items.push({ icon: 'folder', label: 'Show in folder', fn: () => P.showInFolder(saved) });
+      }
+      items.push({ icon: 'circle-check', label: 'Select', fn: () => enterSelect(m.id) });
+      items.push({ sep: true });
     }
-    items.push({ label: 'Delete for me', danger: true, fn: () => confirmDelete(m.room, [m.id], false) });
-    items.push({ label: 'Delete for everyone', danger: true, fn: () => confirmDelete(m.room, [m.id], true) });
+    items.push({ icon: 'users', label: 'Delete for everyone', danger: true, fn: () => deleteNow(m.room, [m.id], true) });
+    items.push({ icon: 'user', label: 'Delete for me', danger: true, fn: () => deleteNow(m.room, [m.id], false) });
     return items;
   }
   function attachMsgMenu(row, b, m, partial) {
@@ -1407,19 +1837,21 @@
       openMenuAt(e.clientX, e.clientY, msgMenuItems(m, partial));
     });
     let timer = null, sx = 0, sy = 0;
-    const cancel = () => { if (timer) { clearTimeout(timer); timer = null; } };
+    const cancel = () => { if (timer) { clearTimeout(timer); timer = null; } b.classList.remove('pressing'); };
     b.addEventListener('touchstart', (e) => {
       lastTouch = Date.now();
       const t = e.touches[0];
       sx = t.clientX; sy = t.clientY;
       cancel();
+      b.classList.add('pressing');
       timer = setTimeout(() => {
         timer = null;
+        b.classList.remove('pressing');
         lastTouch = Date.now();
         suppressClick = true;
         try { if (navigator.vibrate) navigator.vibrate(15); } catch (x) { /* */ }
         if (ui.select) { if (!partial) toggleSelect(m.id); } else openMenuAt(sx, sy, msgMenuItems(m, partial));
-      }, 550);
+      }, 500);
     }, { passive: true });
     b.addEventListener('touchmove', (e) => {
       const t = e.touches[0];
@@ -1482,29 +1914,39 @@
         const row = ui.els.get(id);
         if (row) {
           for (const v of row.querySelectorAll('video')) { try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) { /* */ } }
-          for (const img of row.querySelectorAll('img')) img.removeAttribute('src');
-          row.remove();
           ui.els.delete(id);
+          removeAnimated(row, () => {
+            for (const img of row.querySelectorAll('img')) img.removeAttribute('src');
+          });
         }
         const u = ui.urls.get(id);
         if (u) { URL.revokeObjectURL(u); ui.urls.delete(id); }
         const rx = $('#messages .msg[data-rx="' + id + '"]');
-        if (rx) rx.remove();
+        if (rx) removeAnimated(rx);
         if (ui.select) ui.select.delete(id);
       }
       ui.msgs = ui.msgs.filter((m) => !set.has(m.id));
-      tidyChat();
+      setTimeout(tidyChat, reduceMotion() ? 0 : 190);
+      regroup();
       renderSelection();
+      renderLiveHead();
     }
     const lm = lastMsg.get(code);
     if (lm && set.has(lm.id)) {
       roomMessages(code).then((msgs) => {
         if (msgs.length) lastMsg.set(code, msgs[msgs.length - 1]); else lastMsg.delete(code);
-        if ($('#home').classList.contains('active')) renderHome();
+        scheduleHome();
       }).catch(() => {});
     }
   }
-  // After removals: drop orphaned day separators, recompute sender-change gaps, show the empty hint.
+  function removeAnimated(node, after) {
+    if (reduceMotion() || !node.isConnected) { node.remove(); if (after) after(); return; }
+    node.style.height = node.offsetHeight + 'px';
+    node.classList.add('leaving');
+    requestAnimationFrame(() => { node.style.height = '0px'; });
+    setTimeout(() => { node.remove(); if (after) after(); }, 180);
+  }
+  // After removals: drop orphaned day separators, show the empty hint.
   function tidyChat() {
     const inner = $('#messages .inner');
     if (!inner) return;
@@ -1512,20 +1954,15 @@
       const n = sep.nextElementSibling;
       if (!n || n.classList.contains('day-sep')) sep.remove();
     }
-    let prev = null;
-    for (const m of ui.msgs) {
-      const row = ui.els.get(m.id);
-      if (row) row.classList.toggle('gap', !!prev && prev.from !== m.from);
-      prev = m;
-    }
-    if (!ui.msgs.length && !inner.querySelector('.msg') && !$('#emptyChat')) inner.appendChild(emptyChatEl());
+    regroup();
+    if (!ui.msgs.length && !inner.querySelector('.msg') && !$('#emptyChat') && !$('#live .msg')) inner.appendChild(emptyChatEl());
   }
   function openMenuAt(x, y, items) {
-    const fake = { getBoundingClientRect: () => ({ left: x, right: x + 170, top: y, bottom: y }) };
+    const fake = { getBoundingClientRect: () => ({ left: x, right: x + 200, top: y, bottom: y }) };
     openMenu(fake, items);
   }
   async function copyMsg(text) {
-    try { await P.copyText(text); toast('Copied'); } catch (e) { toast('Copy failed'); }
+    try { await P.copyText(text); toast('Copied to clipboard', null, 1800, 'copy'); } catch (e) { toast('Copy failed', null, 2600, 'alert'); }
   }
 
   function objUrl(id, blob) {
@@ -1534,172 +1971,361 @@
     return u;
   }
 
-  function buildFileContent(b, m, mine) {
+  // ---------- file / media content
+  const EXT_COLORS = [
+    [/^(pdf)$/, 'red'], [/^(docx?|odt|rtf|pages)$/, 'blue'], [/^(xlsx?|csv|ods|numbers)$/, 'green'],
+    [/^(pptx?|odp|key)$/, 'orange'], [/^(zip|rar|7z|tar|gz|tgz|bz2|xz)$/, 'amber'],
+    [/^(mp3|wav|flac|ogg|m4a|aac|opus|wma)$/, 'pink'], [/^(apk|exe|msi|dmg|deb|appimage)$/, 'violet'],
+    [/^(txt|md|json|js|ts|html|css|xml|yml|yaml|log|py|java|c|cpp|cs|sh|bat|ini)$/, 'teal'],
+    [/^(jpe?g|png|gif|webp|bmp|heic|heif|tiff?|svg|ico)$/, 'cyan'], [/^(mp4|mov|webm|mkv|avi|m4v|3gp)$/, 'violet']
+  ];
+  function extColor(name) {
+    const e = extOf(name).toLowerCase();
+    for (const [re, c] of EXT_COLORS) if (re.test(e)) return c;
+    return 'slate';
+  }
+  function fileIconEl(name, kind) {
+    const fi = el('div', 'file-icon c-' + extColor(name));
+    fi.innerHTML = svg(kind === 'image' ? 'image' : kind === 'video' ? 'video' : 'file', 22);
+    fi.appendChild(el('span', 'ext', extOf(name).toUpperCase().slice(0, 4)));
+    return fi;
+  }
+
+  function buildFileContent(b, m, mine, meta) {
     const kind = fileKind(m.mime, m.fileName);
     const holder = el('div', 'file-holder');
     b.appendChild(holder);
-    if (kind === 'image' || kind === 'video') b.classList.add('media');
+    const asCard = () => {
+      holder.innerHTML = '';
+      b.classList.remove('media');
+      holder.appendChild(fileCard(m, mine));
+      b.appendChild(meta);
+    };
+    let box = null;
+    if (kind === 'image' || kind === 'video') {
+      b.classList.add('media', 'media-' + kind);
+      box = el('div', 'media-box loading');
+      box.appendChild(meta);
+      holder.appendChild(box);
+      holder.appendChild(mediaCaption(m));
+    } else {
+      holder.appendChild(fileCard(m, mine));
+      b.appendChild(meta);
+    }
     getBlob(m.id).then((blob) => {
       if (!holder.isConnected || ui.els.get(m.id) !== holder.closest('.msg')) return; // deleted / chat closed meanwhile
-      if (!blob) { holder.appendChild(el('div', 'file-size', 'File data missing')); return; }
+      if (!blob) {
+        if (box) { box.classList.remove('loading'); box.classList.add('missing'); box.insertAdjacentHTML('afterbegin', svg('alert', 28)); }
+        else holder.querySelector('.file-size').textContent = 'File data missing';
+        return;
+      }
       if (kind === 'image') {
         const img = el('img', 'thumb');
         img.alt = m.fileName;
-        img.loading = 'lazy';
+        img.decoding = 'async';
+        img.onload = () => {
+          box.classList.remove('loading');
+          const ar = img.naturalWidth && img.naturalHeight ? img.naturalWidth / img.naturalHeight : 1;
+          box.style.setProperty('--ar', String(Math.max(0.4, Math.min(2.4, ar))));
+          box.classList.add('ready');
+          scrollBottom(false);
+        };
+        img.onerror = asCard;
+        img.onclick = () => { if (!ui.select) openViewer(m, blob); };
         img.src = objUrl(m.id, blob);
-        img.onload = () => scrollBottom(false);
-        img.onerror = () => { img.replaceWith(fileCard(m, mine, blob)); };
-        img.onclick = () => openViewer(m, blob);
-        holder.appendChild(img);
-        holder.appendChild(mediaCaption(m, blob));
+        box.insertBefore(img, meta);
       } else if (kind === 'video') {
         const v = el('video');
-        v.controls = true;
         v.preload = 'metadata';
         v.playsInline = true;
         v.src = objUrl(m.id, blob);
-        v.onloadedmetadata = () => scrollBottom(false);
-        holder.appendChild(v);
-        holder.appendChild(mediaCaption(m, blob));
-      } else {
-        holder.appendChild(fileCard(m, mine, blob));
+        const play = el('button', 'play-btn');
+        play.type = 'button';
+        play.title = 'Play';
+        play.setAttribute('aria-label', 'Play video');
+        play.innerHTML = svg('play', 26);
+        const dur = el('span', 'dur');
+        v.onloadedmetadata = () => {
+          box.classList.remove('loading');
+          if (v.videoWidth && v.videoHeight) box.style.setProperty('--ar', String(Math.max(0.4, Math.min(2.4, v.videoWidth / v.videoHeight))));
+          box.classList.add('ready');
+          if (isFinite(v.duration)) dur.textContent = fmtDur(v.duration);
+          scrollBottom(false);
+        };
+        v.onerror = () => { box.classList.remove('loading'); };
+        play.onclick = (e) => {
+          e.stopPropagation();
+          if (ui.select) return;
+          box.classList.add('playing');
+          v.controls = true;
+          const p = v.play();
+          if (p && p.catch) p.catch(() => {});
+        };
+        v.onended = () => { box.classList.remove('playing'); v.controls = false; };
+        box.insertBefore(v, meta);
+        box.insertBefore(play, meta);
+        box.insertBefore(dur, meta);
       }
     });
   }
+  function fmtDur(s) {
+    s = Math.round(s);
+    const h = Math.floor(s / 3600), mm = Math.floor(s / 60) % 60, ss = s % 60;
+    return (h ? h + ':' + pad2(mm) : mm) + ':' + pad2(ss);
+  }
 
-  function mediaCaption(m, blob) {
+  function saveSlot(m) {
+    const slot = el('div', 'save-slot');
+    const s = iconBtn('download', 'Save', 'save-btn', 18);
+    s.onclick = (e) => { e.stopPropagation(); saveMsg(m); };
+    slot.appendChild(s);
+    const saved = ui.savedPaths.get(m.id);
+    if (saved) addSavedButtons(slot, saved);
+    return slot;
+  }
+
+  function mediaCaption(m) {
     const c = el('div', 'media-caption');
-    c.appendChild(el('span', 'name', m.fileName + ' · ' + fmtSize(m.size)));
-    const s = el('button', 'link-btn', 'Save');
-    s.onclick = (e) => { e.stopPropagation(); saveMsg(m, blob); };
-    c.appendChild(s);
+    const t = el('div', 'cap-text');
+    t.appendChild(el('span', 'name', m.fileName));
+    t.appendChild(el('span', 'size', fmtSize(m.size)));
+    c.append(t, saveSlot(m));
     return c;
   }
 
-  function fileCard(m, mine, blob) {
-    const card = el('div');
-    const top = el('div', 'file-card');
-    top.appendChild(el('div', 'file-icon', extOf(m.fileName)));
+  function fileCard(m, mine) {
+    const card = el('div', 'file-card');
+    card.appendChild(fileIconEl(m.fileName, fileKind(m.mime, m.fileName)));
     const info = el('div', 'file-info');
     info.appendChild(el('div', 'file-name', m.fileName));
-    info.appendChild(el('div', 'file-size', fmtSize(m.size)));
-    top.appendChild(info);
-    card.appendChild(top);
-    const acts = el('div', 'file-actions');
-    const save = el('button', 'btn small', 'Save');
-    save.onclick = () => saveMsg(m, blob, acts);
-    acts.appendChild(save);
+    info.appendChild(el('div', 'file-size', fmtSize(m.size) + ' · ' + extOf(m.fileName).toUpperCase()));
+    card.appendChild(info);
+    const slot = saveSlot(m);
     if (P.kind === 'browser') {
-      const open = el('button', 'btn small', 'Open');
-      open.onclick = () => window.open(objUrl(m.id, blob), '_blank');
-      acts.appendChild(open);
+      const open = iconBtn('external', 'Open in new tab', 'save-btn', 18);
+      open.onclick = async (e) => {
+        e.stopPropagation();
+        const blob = await getBlob(m.id);
+        if (blob) window.open(objUrl(m.id, blob), '_blank');
+      };
+      slot.appendChild(open);
     }
-    card.appendChild(acts);
-    const saved = ui.savedPaths.get(m.id);
-    if (saved) addElectronButtons(acts, saved);
+    card.appendChild(slot);
     return card;
   }
 
-  function addElectronButtons(acts, path) {
-    if (!acts || acts.querySelector('.ebtn')) return;
+  // After saving on PC: icon buttons to open the file / show it in its folder.
+  function addSavedButtons(slot, path) {
+    if (!slot || slot.querySelector('.ebtn')) return;
+    const before = slot.querySelector('#viewerClose');
+    const add = (b) => { if (before) slot.insertBefore(b, before); else slot.appendChild(b); };
     if (P.canOpenPath) {
-      const o = el('button', 'btn small ebtn', 'Open');
-      o.onclick = () => P.openPath(path);
-      acts.appendChild(o);
+      const o = iconBtn('external', 'Open file', 'save-btn ebtn', 18);
+      o.onclick = (e) => { e.stopPropagation(); P.openPath(path); };
+      add(o);
     }
     if (P.canShowInFolder) {
-      const f = el('button', 'btn small ebtn', 'Show in folder');
-      f.onclick = () => P.showInFolder(path);
-      acts.appendChild(f);
+      const f = iconBtn('folder', 'Show in folder', 'save-btn ebtn', 18);
+      f.onclick = (e) => { e.stopPropagation(); P.showInFolder(path); };
+      add(f);
     }
   }
+  function refreshSavedButtons(id, path) {
+    const row = ui.els.get(id);
+    if (row) for (const s of row.querySelectorAll('.save-slot')) addSavedButtons(s, path);
+    if (viewerMsg && viewerMsg.m.id === id) addSavedButtons($('#viewerSlot'), path);
+  }
 
-  async function saveMsg(m, blob, acts) {
+  async function saveMsg(m, blob) {
     try {
       blob = blob || await getBlob(m.id);
-      if (!blob) { toast('File data missing'); return; }
-      if (P.kind !== 'browser') toast('Saving ' + m.fileName + '…', null, 60000);
+      if (!blob) { toast('File data missing', null, 2600, 'alert'); return; }
+      if (P.kind !== 'browser') toast('Saving ' + m.fileName + '…', null, 60000, 'download');
       const res = await P.saveFile(m.fileName, m.mime, blob);
       if (P.kind === 'electron') {
         ui.savedPaths.set(m.id, res);
-        addElectronButtons(acts, res);
-        toast('Saved to ' + res, P.canShowInFolder ? { label: 'Show in folder', fn: () => P.showInFolder(res) } : null);
+        refreshSavedButtons(m.id, res);
+        toast('Saved to ' + res, P.canShowInFolder ? { label: 'Show in folder', fn: () => P.showInFolder(res) } : null, null, 'check');
       } else if (P.kind === 'android') {
-        toast('Saved to ' + res, null, 5000);
+        toast('Saved to ' + res, null, 5000, 'check');
       } else {
-        toast(res);
+        toast(res, null, 2600, 'download');
       }
     } catch (e) {
       console.error(e);
-      toast('Save failed: ' + (e && e.message ? e.message : e), null, 5000);
+      toast('Save failed: ' + (e && e.message ? e.message : e), null, 5000, 'alert');
     }
   }
 
-  // ---------- progress
-  function progressEl(row) {
-    let p = row.querySelector('.progress-wrap');
-    if (!p) {
-      p = el('div', 'progress-wrap');
-      const bar = el('div', 'progress'); bar.appendChild(el('div'));
-      p.append(bar, el('div', 'progress-label'));
-      const bubble = row.querySelector('.bubble');
-      bubble.insertBefore(p, bubble.querySelector('.meta'));
-    }
-    return p;
-  }
-  function setProgress(row, done, total, verb) {
-    const p = progressEl(row);
-    const pct = total ? Math.floor(done / total * 100) : 100;
-    p.querySelector('.progress > div').style.width = pct + '%';
-    p.querySelector('.progress-label').textContent = verb + ' ' + pct + '% · ' + fmtSize(done) + ' / ' + fmtSize(total);
-  }
-
+  // ---------- progress (sender: own bubble with progress + cancel)
   function onTxProgress(code, id, s) {
     if (code !== current) return;
     const row = ui.els.get(id);
     if (!row) return;
-    if (!s) { const p = row.querySelector('.progress-wrap'); if (p) p.remove(); return; }
-    setProgress(row, s.sent, s.size, 'Sending');
+    let x = row.querySelector('.xfer');
+    if (!s) { if (x) x.remove(); row.classList.remove('sending'); return; }
+    if (!x) {
+      x = el('div', 'xfer');
+      const top = el('div', 'xfer-top');
+      top.appendChild(el('span', 'xfer-label'));
+      const cancel = iconBtn('x', 'Cancel sending (deletes for everyone)', 'xfer-cancel', 15);
+      cancel.onclick = (e) => { e.stopPropagation(); deleteNow(code, [id], true); };
+      top.appendChild(cancel);
+      const bar = el('div', 'progress');
+      bar.appendChild(el('div'));
+      x.append(top, bar);
+      const b = row.querySelector('.bubble');
+      const meta = b.querySelector(':scope > .meta');
+      b.insertBefore(x, meta || null);
+      row.classList.add('sending');
+    }
+    const pct = s.size ? Math.floor(s.sent / s.size * 100) : 100;
+    x.classList.toggle('queued', !!s.queued);
+    x.querySelector('.progress > div').style.width = (s.queued ? 0 : pct) + '%';
+    x.querySelector('.xfer-label').textContent = s.queued ? 'Queued…' : 'Sending ' + pct + '% · ' + fmtSize(s.sent) + ' / ' + fmtSize(s.size);
   }
 
-  function onRxProgress(code, id, rx) {
+  // ---------- receiver placeholders ("sending a photo…" bubbles, bottom-left)
+  function placeholderRow(meta) {
+    const row = el('div', 'msg theirs placeholder enter grp-first grp-last');
+    row.dataset.rx = meta.id;
+    const b = el('div', 'bubble up-card');
+    const kind = fileKind(meta.mime, meta.fileName);
+    const ic = fileIconEl(meta.fileName, kind);
+    ic.classList.add('spin');
+    const info = el('div', 'up-info');
+    info.appendChild(el('div', 'file-name', meta.fileName));
+    info.appendChild(el('div', 'up-sub'));
+    const bar = el('div', 'progress shimmer');
+    bar.appendChild(el('div'));
+    info.appendChild(bar);
+    const top = el('div', 'up-top');
+    top.append(ic, info);
+    b.appendChild(top);
+    row.appendChild(b);
+    attachMsgMenu(row, b, meta, true); // delete while receiving -> aborts the transfer
+    return row;
+  }
+  function renderPlaceholder(code, id) {
     if (code !== current) return;
-    let row = $('#messages .msg[data-rx="' + id + '"]');
-    if (!rx) { if (row) row.remove(); return; }
+    const rc = conns.get(code);
+    const live = $('#live');
+    if (!rc || !live) return;
+    const rx = rc.incoming.get(id);
+    const meta = rx ? rx.meta : rc.announced.get(id);
+    let row = live.querySelector('.msg[data-rx="' + id + '"]');
+    if (!meta || (rx && rx.skip)) { if (row) removeAnimated(row); renderLiveHead(); return; }
     if (!row) {
-      const inner = $('#messages .inner');
-      if (!inner) return;
       const ec = $('#emptyChat'); if (ec) ec.remove();
-      row = el('div', 'msg theirs');
-      row.dataset.rx = id;
-      const b = el('div', 'bubble');
-      const card = el('div', 'file-card');
-      card.appendChild(el('div', 'file-icon', extOf(rx.meta.fileName)));
-      const info = el('div', 'file-info');
-      info.appendChild(el('div', 'file-name', rx.meta.fileName));
-      info.appendChild(el('div', 'file-size', fmtSize(rx.meta.size)));
-      card.appendChild(info);
-      b.appendChild(card);
-      b.appendChild(el('div', 'meta', fmtTime(rx.meta.ts)));
-      attachMsgMenu(row, b, rx.meta, true); // delete while receiving -> aborts the transfer
-      row.appendChild(b);
-      inner.appendChild(row);
+      row = placeholderRow(meta);
+      const typing = live.querySelector('.typing-row');
+      live.insertBefore(row, typing || null);
       scrollBottom(false);
     }
-    setProgress(row, rx.received, rx.meta.size, 'Receiving');
+    const sub = row.querySelector('.up-sub');
+    const fill = row.querySelector('.progress > div');
+    if (rx) {
+      const pct = meta.size ? Math.floor(rx.received / meta.size * 100) : 100;
+      row.classList.remove('queued');
+      fill.style.width = pct + '%';
+      sub.textContent = pct + '% · ' + fmtSize(rx.received) + ' / ' + fmtSize(meta.size);
+    } else {
+      row.classList.add('queued');
+      fill.style.width = '0%';
+      sub.textContent = fmtSize(meta.size) + ' · waiting…';
+    }
+    renderLiveHead();
+  }
+  function renderLiveHead() {
+    const live = $('#live');
+    if (!live) return;
+    const n = live.querySelectorAll('.msg.placeholder:not(.leaving)').length;
+    let h = live.querySelector('.live-head');
+    if (n > 1) {
+      if (!h) { h = el('div', 'live-head'); live.insertBefore(h, live.firstChild); }
+      h.innerHTML = svg('download', 13);
+      h.appendChild(document.createTextNode(n + ' files coming'));
+    } else if (h) h.remove();
+  }
+  function onRxProgress(code, id, rx) {
+    renderPlaceholder(code, id);
+    if (!rx || !rx.lastUi || rx.received === 0) onActivity(code);
+  }
+  function onAnnounce(code, ids) {
+    for (const id of ids) renderPlaceholder(code, id);
+    onActivity(code);
+  }
+
+  // ---------- typing indicator
+  function renderTyping() {
+    const live = $('#live');
+    if (!live) return;
+    const rc = conns.get(current);
+    const on = !!(rc && rc.peerTyping && rc.state === 'connected');
+    let row = live.querySelector('.typing-row');
+    if (on && !row) {
+      row = el('div', 'msg theirs typing-row enter grp-first grp-last');
+      const b = el('div', 'bubble typing');
+      b.setAttribute('aria-label', 'typing');
+      b.innerHTML = '<i></i><i></i><i></i>';
+      row.appendChild(b);
+      live.appendChild(row);
+      const ec = $('#emptyChat'); if (ec) ec.style.display = 'none';
+      scrollBottom(false);
+    } else if (!on && row) {
+      row.classList.remove('typing-row');
+      removeAnimated(row);
+      const ec = $('#emptyChat'); if (ec) ec.style.display = '';
+    }
+  }
+  function onTyping(c) {
+    if (c.code === current) renderTyping();
+    onActivity(c.code);
+  }
+  // outgoing: start at most every 3 s while typing; stop on send / empty box / 4 s idle
+  const typingOut = { code: null, last: 0, idle: null, on: false };
+  function typingPing() {
+    if (!current) return;
+    if (!$('#input').value.trim()) { stopTyping(); return; }
+    const rc = conns.get(current);
+    if (!rc || !rc.can('typing')) return;
+    if (typingOut.on && typingOut.code !== current) stopTyping();
+    const now = Date.now();
+    if (!typingOut.on || now - typingOut.last >= 3000) {
+      if (rc.sendJSON({ t: 'typing', on: true })) { typingOut.on = true; typingOut.code = current; typingOut.last = now; }
+    }
+    clearTimeout(typingOut.idle);
+    typingOut.idle = setTimeout(stopTyping, 4000);
+  }
+  function stopTyping() {
+    clearTimeout(typingOut.idle);
+    if (!typingOut.on) return;
+    typingOut.on = false;
+    const rc = conns.get(typingOut.code);
+    if (rc && rc.can('typing')) rc.sendJSON({ t: 'typing', on: false });
   }
 
   // ---------- events from RoomConn / storage
   function onNewMessage(m) {
     lastMsg.set(m.room, m);
-    if (m.room !== current) { if ($('#home').classList.contains('active')) renderHome(); return; }
+    const rc = conns.get(m.room);
+    const r = rooms.get(m.room);
+    const mine = r && m.from === r.slot;
+    if (!mine && rc && rc.peerTyping) rc.setPeerTyping(false);
+    scheduleHome();
+    if (m.room !== current) return;
     if (ui.els.has(m.id)) return;
     const rxRow = $('#messages .msg[data-rx="' + m.id + '"]');
-    if (rxRow) rxRow.remove();
+    if (rxRow) { rxRow.remove(); renderLiveHead(); }
+    const wasNear = distBottom() < 160;
     const prev = ui.msgs.length ? ui.msgs[ui.msgs.length - 1] : null;
     ui.msgs.push(m);
-    appendMessage(m, prev);
-    scrollBottom(m.from === rooms.get(m.room).slot);
+    appendMessage(m, prev, null, true);
+    applyGroup(ui.msgs.length - 2);
+    applyGroup(ui.msgs.length - 1);
+    if (mine) scrollBottom(true, true);
+    else if (wasNear) scrollBottom(true, true);
+    else { ui.unread = (ui.unread || 0) + 1; updateFab(); }
   }
 
   function onMessageUpdated(m) {
@@ -1709,36 +2335,54 @@
     const row = ui.els.get(m.id);
     if (!row) return;
     const r = rooms.get(m.room);
-    const old = row.querySelector('.bubble > .meta');
+    const old = row.querySelector('.meta');
     if (old) old.replaceWith(buildMeta(m, m.from === r.slot));
   }
 
   function onConnState(c) {
-    if (c.code === current) renderChatHeader();
-    if ($('#home').classList.contains('active')) {
-      const li = $('#roomList .room[data-code="' + c.code + '"]');
-      if (li) {
-        li.querySelector('.dot').className = 'dot ' + c.state;
-        if (!lastMsg.get(c.code)) li.querySelector('.room-last').textContent = stateLabel(c.code);
-      }
-    }
+    if (c.code === current) { renderChatHeader(); renderTyping(); }
+    updateRoomRow(c.code);
   }
 
   // ---------- viewer
   let viewerMsg = null;
   function openViewer(m, blob) {
     viewerMsg = { m, blob };
+    for (const b of $('#viewerSlot').querySelectorAll('.ebtn')) b.remove();
+    const saved = ui.savedPaths.get(m.id);
+    if (saved) addSavedButtons($('#viewerSlot'), saved);
     $('#viewerImg').src = objUrl(m.id, blob);
     $('#viewerName').textContent = m.fileName + ' · ' + fmtSize(m.size);
     $('#viewer').hidden = false;
   }
   function closeViewer() { $('#viewer').hidden = true; $('#viewerImg').removeAttribute('src'); viewerMsg = null; }
 
+  // ---------- toast
+  let toastTimer = null;
+  function toast(msg, action, ms, ic) {
+    const t = $('#toast');
+    t.innerHTML = '';
+    if (ic) t.insertAdjacentHTML('beforeend', svg(ic, 17, 'toast-ic'));
+    t.appendChild(el('span', 'toast-msg', msg));
+    if (action) {
+      const b = el('button', 'btn small primary', action.label);
+      b.onclick = () => { t.hidden = true; action.fn(); };
+      t.appendChild(b);
+    }
+    t.hidden = false;
+    t.classList.remove('in');
+    void t.offsetWidth;
+    t.classList.add('in');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.hidden = true; }, ms || (action ? 7000 : 2600));
+  }
+
   // ---------- composer
   function autosize() {
     const t = $('#input');
     t.style.height = 'auto';
-    t.style.height = Math.min(160, t.scrollHeight + 2) + 'px';
+    t.style.height = Math.min(160, t.scrollHeight) + 'px';
+    $('#composer').classList.toggle('has-text', !!t.value.trim());
   }
   function doSend() {
     const t = $('#input');
@@ -1746,11 +2390,13 @@
     if (!v.trim()) return;
     t.value = '';
     autosize();
+    stopTyping();
     sendText(v);
     if (!isTouch) t.focus();
   }
 
   function bindUI() {
+    hydrateIcons();
     $('#btnCreate').onclick = createRoom;
     $('#btnJoin').onclick = joinRoom;
     $('#btnSettings').onclick = openSettings;
@@ -1761,16 +2407,17 @@
       const r = rooms.get(current);
       if (!r) return;
       openMenu($('#btnSettings2'), [
-        { label: 'Show code', fn: () => showCode(r, false) },
-        { label: 'Rename room', fn: () => renameRoom(r) },
-        { label: 'Select messages', fn: () => enterSelect() },
-        { label: 'Settings', fn: openSettings },
-        { label: 'Clear chat for everyone', danger: true, fn: () => clearChat(r) },
-        { label: 'Delete room', danger: true, fn: () => deleteRoom(r) }
+        { icon: 'hash', label: 'Show code', fn: () => showCode(r, false) },
+        { icon: 'pencil', label: 'Rename room', fn: () => renameRoom(r) },
+        { icon: 'circle-check', label: 'Select messages', fn: () => enterSelect() },
+        { icon: 'settings', label: 'Settings', fn: openSettings },
+        { sep: true },
+        { icon: 'trash', label: 'Remove room from this device', danger: true, fn: () => deleteRoom(r) }
       ]);
     };
     const input = $('#input');
-    input.addEventListener('input', autosize);
+    input.addEventListener('input', () => { autosize(); typingPing(); });
+    input.addEventListener('blur', () => { if (!input.value.trim()) stopTyping(); });
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey && !isTouch && !e.isComposing) { e.preventDefault(); doSend(); }
     });
@@ -1778,6 +2425,10 @@
     $('#btnSend').onclick = doSend;
     $('#btnAttach').onclick = () => $('#fileInput').click();
     $('#fileInput').onchange = (e) => { const f = [...e.target.files]; e.target.value = ''; sendFiles(f); };
+
+    const box = $('#messages');
+    box.addEventListener('scroll', () => { if (!ui.fabRaf) ui.fabRaf = requestAnimationFrame(() => { ui.fabRaf = 0; updateFab(); }); }, { passive: true });
+    $('#scrollDown').onclick = () => { ui.unread = 0; scrollBottom(true, true); setTimeout(updateFab, 400); };
 
     document.addEventListener('paste', (e) => {
       if (!current || !$('#modal').hidden) return;
@@ -1804,11 +2455,13 @@
     $('#viewerSave').onclick = (e) => { e.stopPropagation(); if (viewerMsg) saveMsg(viewerMsg.m, viewerMsg.blob); };
     document.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') return;
-      if (!$('#viewer').hidden) closeViewer();
+      if ($('#menu')) closeMenu();
+      else if (!$('#viewer').hidden) closeViewer();
       else if (!$('#modal').hidden) closeModal();
-      else if ($('#menu')) closeMenu();
       else exitSelect();
     });
+    window.addEventListener('resize', () => { closeMenu(); updateFab(); });
+    if (wideMq.addEventListener) wideMq.addEventListener('change', () => { if (isWide()) renderHome(); });
 
     // select bar
     $('#selCancel').onclick = exitSelect;
@@ -1828,6 +2481,7 @@
 
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') for (const c of conns.values()) c.tick();
+      else stopTyping();
     });
     window.addEventListener('online', () => { for (const c of conns.values()) c.tick(); });
 
@@ -1849,7 +2503,7 @@
   async function init() {
     bindUI();
     if (typeof Peer === 'undefined') {
-      toast('PeerJS failed to load', null, 10000);
+      toast('PeerJS failed to load', null, 10000, 'alert');
       return;
     }
     const list = await dbAll('rooms');
@@ -1859,8 +2513,8 @@
       if (msgs.length) lastMsg.set(r.code, msgs[msgs.length - 1]);
     }
     for (const r of rooms.values()) startRoom(r);
+    await renderHome();
     if (rooms.size === 1) await openChat([...rooms.keys()][0]);
-    else await renderHome();
   }
 
   // debug/testing hook

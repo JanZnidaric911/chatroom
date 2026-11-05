@@ -4,80 +4,112 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="dark light">
-  <meta name="theme-color" content="#11141b">
+  <meta name="theme-color" content="#0f1218">
   <title>ChatRoom</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <!-- HOME -->
-  <section id="home" class="screen active">
-    <header class="topbar">
-      <div class="brand"><span class="logo">&#9679;</span> ChatRoom</div>
-      <button class="icon-btn" id="btnSettings" title="Settings" aria-label="Settings">
-        <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M19.14 12.94a7.07 7.07 0 0 0 .05-.94 7.07 7.07 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.3 7.3 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.49.42l-.36 2.54c-.59.24-1.13.56-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.66 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.4 7.4 0 0 0 0 1.88l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.13.22.39.3.6.22l2.39-.96c.5.38 1.04.7 1.63.94l.36 2.54c.05.24.25.42.49.42h3.84c.24 0 .45-.18.49-.42l.36-2.54c.59-.24 1.13-.56 1.63-.94l2.39.96c.22.08.47 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.6a3.6 3.6 0 1 1 0-7.2 3.6 3.6 0 0 1 0 7.2Z"/></svg>
-      </button>
-    </header>
-    <main class="home-main">
-      <ul id="roomList" class="room-list"></ul>
-      <div id="emptyHome" class="empty-home">
-        <div class="empty-icon">&#128172;</div>
-        <h2>No chat rooms yet</h2>
-        <p>Create a room on one device, then join it with the code on your other device.</p>
-      </div>
+  <div id="app" class="app">
+    <!-- HOME / ROOM LIST -->
+    <section id="home" class="screen active">
+      <header class="topbar home-top">
+        <div class="brand">
+          <span class="logo" aria-hidden="true">
+            <svg viewBox="0 0 32 32" width="30" height="30"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4f7cff"/><stop offset="1" stop-color="#8a5cff"/></linearGradient></defs><rect width="32" height="32" rx="10" fill="url(#lg)"/><path d="M9.5 21.5 8 25l4.2-1.6A8.5 8.5 0 1 0 9.5 21.5Z" fill="none" stroke="#fff" stroke-width="2" stroke-linejoin="round"/><circle cx="12.5" cy="16" r="1.3" fill="#fff"/><circle cx="16.5" cy="16" r="1.3" fill="#fff"/><circle cx="20.5" cy="16" r="1.3" fill="#fff"/></svg>
+          </span>
+          <span>ChatRoom</span>
+        </div>
+        <button class="icon-btn" id="btnSettings" title="Settings" aria-label="Settings" data-icon="settings"></button>
+      </header>
+      <main class="home-main">
+        <ul id="roomList" class="room-list"></ul>
+        <div id="emptyHome" class="empty-home">
+          <svg class="illus" viewBox="0 0 200 150" width="190" height="142" aria-hidden="true">
+            <defs><linearGradient id="ig1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4f7cff"/><stop offset="1" stop-color="#8a5cff"/></linearGradient></defs>
+            <ellipse cx="100" cy="134" rx="70" ry="8" class="illus-shadow"/>
+            <rect x="22" y="22" width="62" height="104" rx="12" class="illus-device"/>
+            <rect x="28" y="32" width="50" height="84" rx="6" class="illus-screen"/>
+            <rect x="100" y="34" width="84" height="56" rx="8" class="illus-device"/>
+            <rect x="106" y="40" width="72" height="44" rx="4" class="illus-screen"/>
+            <rect x="126" y="90" width="32" height="6" rx="3" class="illus-device"/>
+            <rect x="34" y="44" width="30" height="12" rx="6" class="illus-bubble"/>
+            <rect x="42" y="62" width="30" height="12" rx="6" fill="url(#ig1)"/>
+            <rect x="112" y="48" width="38" height="10" rx="5" class="illus-bubble"/>
+            <rect x="130" y="64" width="40" height="10" rx="5" fill="url(#ig1)"/>
+            <path d="M86 70c6-10 10-12 14-12" fill="none" stroke="url(#ig1)" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="1 6"/>
+          </svg>
+          <h2>No chat rooms yet</h2>
+          <p>Create a room on one device, then join it with the code on your other device.</p>
+        </div>
+      </main>
       <div class="home-actions">
-        <button class="btn primary" id="btnCreate">Create room</button>
-        <button class="btn" id="btnJoin">Join room</button>
+        <button class="btn primary" id="btnCreate" data-icon="plus">Create room</button>
+        <button class="btn" id="btnJoin" data-icon="log-in">Join room</button>
       </div>
-    </main>
-  </section>
+    </section>
 
-  <!-- CHAT -->
-  <section id="chat" class="screen">
-    <header class="topbar chat-top">
-      <button class="icon-btn" id="btnBack" title="Back" aria-label="Back">
-        <svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M15.4 5.4 14 4l-8 8 8 8 1.4-1.4L8.8 12z"/></svg>
-      </button>
-      <button class="chat-title" id="chatTitle" title="Show room code">
-        <span class="dot" id="chatDot"></span>
-        <span class="chat-title-text">
-          <span id="chatName">Room</span>
-          <small id="chatSub"></small>
-        </span>
-      </button>
-      <button class="icon-btn" id="btnSettings2" title="Settings" aria-label="Settings">
-        <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm0 6a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z"/></svg>
-      </button>
-    </header>
-    <div id="statusBar" class="status-bar waiting">
-      <span id="statusText">Connecting…</span>
-      <small id="statusHint"></small>
-    </div>
-    <div id="messages" class="messages" aria-live="polite"></div>
-    <div id="selectBar" class="select-bar" hidden>
-      <button class="icon-btn" id="selCancel" title="Cancel selection" aria-label="Cancel selection">
-        <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M19 6.4 17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19l5.6-5.6 5.6 5.6 1.4-1.4-5.6-5.6z"/></svg>
-      </button>
-      <span id="selCount" class="sel-count">0 selected</span>
-      <button class="btn small" id="selAll">All</button>
-      <button class="btn small" id="selDelMe">Delete for me</button>
-      <button class="btn small danger" id="selDelAll">Delete for everyone</button>
-    </div>
-    <footer class="composer">
-      <button class="icon-btn" id="btnAttach" title="Attach files" aria-label="Attach files">
-        <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M16.5 6.5v10a4.5 4.5 0 0 1-9 0V5a3 3 0 0 1 6 0v10.5a1.5 1.5 0 0 1-3 0V6.5H9v9a3 3 0 0 0 6 0V5a4.5 4.5 0 0 0-9 0v11.5a6 6 0 0 0 12 0v-10h-1.5Z"/></svg>
-      </button>
-      <input type="file" id="fileInput" multiple hidden>
-      <textarea id="input" rows="1" placeholder="Message" autocomplete="off"></textarea>
-      <button class="send-btn" id="btnSend" title="Send" aria-label="Send">
-        <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M3.4 20.4 21 12 3.4 3.6 3.4 10l12.6 2-12.6 2z"/></svg>
-      </button>
-    </footer>
-    <div id="dropOverlay" class="drop-overlay"><div>Drop files to send</div></div>
-  </section>
+    <!-- CHAT -->
+    <section id="chat" class="screen">
+      <header class="topbar chat-top">
+        <button class="icon-btn" id="btnBack" title="Back" aria-label="Back" data-icon="chevron-left" data-size="24"></button>
+        <button class="chat-title" id="chatTitle" title="Show room code">
+          <span class="avatar" id="chatAvatar"></span>
+          <span class="chat-title-text">
+            <span id="chatName">Room</span>
+            <small id="chatSub"></small>
+          </span>
+        </button>
+        <button class="icon-btn" id="btnSettings2" title="Room options" aria-label="Room options" data-icon="more-vertical"></button>
+      </header>
+      <div id="statusBar" class="status-bar connecting">
+        <span class="sb-pulse" aria-hidden="true"></span>
+        <span class="sb-text"><span id="statusText">Connecting…</span><small id="statusHint"></small></span>
+      </div>
+      <div class="chat-body">
+        <div id="messages" class="messages" aria-live="polite"></div>
+        <button id="scrollDown" class="fab" title="Scroll to latest" aria-label="Scroll to latest" data-icon="chevron-down" hidden><span id="unreadBadge" class="fab-badge" hidden></span></button>
+      </div>
+      <div id="selectBar" class="select-bar" hidden>
+        <button class="icon-btn" id="selCancel" title="Cancel selection" aria-label="Cancel selection" data-icon="x"></button>
+        <span id="selCount" class="sel-count">0 selected</span>
+        <button class="btn small ghost" id="selAll" title="Select all">All</button>
+        <button class="btn small ghost" id="selDelMe" title="Delete for me" data-icon="user"><span class="lbl">For me</span></button>
+        <button class="btn small danger" id="selDelAll" title="Delete for everyone" data-icon="users"><span class="lbl">For everyone</span></button>
+      </div>
+      <footer class="composer" id="composer">
+        <div class="composer-pill">
+          <button class="icon-btn attach" id="btnAttach" title="Attach files" aria-label="Attach files" data-icon="paperclip"></button>
+          <input type="file" id="fileInput" multiple hidden>
+          <textarea id="input" rows="1" placeholder="Message" autocomplete="off"></textarea>
+        </div>
+        <button class="send-btn" id="btnSend" title="Send" aria-label="Send" data-icon="send"></button>
+      </footer>
+      <div id="dropOverlay" class="drop-overlay">
+        <div class="drop-card">
+          <span class="drop-icon" data-icon="upload" data-size="34"></span>
+          <strong>Drop to send</strong>
+          <small>Photos, videos and files are sent in full quality</small>
+        </div>
+      </div>
+    </section>
+
+    <!-- WIDE LAYOUT: nothing selected -->
+    <section id="placeholder" class="pane-empty" aria-hidden="true">
+      <svg class="illus" viewBox="0 0 200 150" width="210" height="158">
+        <defs><linearGradient id="ig2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4f7cff"/><stop offset="1" stop-color="#8a5cff"/></linearGradient></defs>
+        <ellipse cx="100" cy="136" rx="64" ry="7" class="illus-shadow"/>
+        <path d="M44 40h80a14 14 0 0 1 14 14v30a14 14 0 0 1-14 14H74l-18 14v-14H44a14 14 0 0 1-14-14V54a14 14 0 0 1 14-14Z" class="illus-bubble"/>
+        <path d="M96 64h56a12 12 0 0 1 12 12v24a12 12 0 0 1-12 12h-6v12l-15-12H96a12 12 0 0 1-12-12V76a12 12 0 0 1 12-12Z" fill="url(#ig2)"/>
+        <circle cx="110" cy="88" r="4" fill="#fff"/><circle cx="124" cy="88" r="4" fill="#fff" opacity=".8"/><circle cx="138" cy="88" r="4" fill="#fff" opacity=".6"/>
+      </svg>
+      <h2>Pick a room</h2>
+      <p>Choose a chat on the left, or create a new room.</p>
+    </section>
+  </div>
 
   <!-- MODAL -->
   <div id="modal" class="overlay" hidden>
-    <div class="dialog" role="dialog" aria-modal="true">
+    <div class="dialog" id="dialog" role="dialog" aria-modal="true">
       <div id="modalBody"></div>
     </div>
   </div>
@@ -86,11 +118,9 @@
   <div id="viewer" class="viewer" hidden>
     <div class="viewer-bar">
       <span id="viewerName"></span>
-      <div>
-        <button class="btn small" id="viewerSave">Save</button>
-        <button class="icon-btn" id="viewerClose" aria-label="Close">
-          <svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M19 6.4 17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19l5.6-5.6 5.6 5.6 1.4-1.4-5.6-5.6z"/></svg>
-        </button>
+      <div class="save-slot" id="viewerSlot">
+        <button class="icon-btn" id="viewerSave" title="Save" aria-label="Save" data-icon="download"></button>
+        <button class="icon-btn" id="viewerClose" title="Close" aria-label="Close" data-icon="x" data-size="22"></button>
       </div>
     </div>
     <img id="viewerImg" alt="">

@@ -3,98 +3,322 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="color-scheme" content="dark">
-  <meta name="theme-color" content="#11141b">
+  <meta name="color-scheme" content="dark light">
+  <meta name="theme-color" content="#0d1016" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f5f7fb" media="(prefers-color-scheme: light)">
+  <meta name="description" content="ChatRoom - your private chat between PC and phone. Download for Windows and Android.">
   <title>ChatRoom</title>
   <style>
     :root {
-      --bg: #0e1117; --card: #171b24; --line: #262c3a; --text: #e8ebf2; --muted: #9aa3b5;
-      --accent: #4f7cff; --accent-2: #6d93ff;
+      --bg: #0d1016; --bg-2: #11151d; --card: #161b25; --card-2: #1b2130; --line: #252c3b; --line-2: #313a4d;
+      --text: #e9ecf3; --muted: #9aa3b6; --faint: #6c768a;
+      --accent: #4f7cff; --accent-b: #8a5cff;
+      --grad: linear-gradient(135deg, var(--accent), var(--accent-b));
+      --glow: rgba(79,124,255,.28); --glow-b: rgba(138,92,255,.22);
+      --shadow: 0 1px 0 rgba(255,255,255,.03) inset, 0 12px 32px rgba(0,0,0,.28);
+      --radius: 20px;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f5f7fb; --bg-2: #eef1f7; --card: #ffffff; --card-2: #f6f8fc; --line: #e2e6ef; --line-2: #d3d9e6;
+        --text: #141823; --muted: #5b6477; --faint: #8a93a6;
+        --glow: rgba(79,124,255,.18); --glow-b: rgba(138,92,255,.14);
+        --shadow: 0 1px 2px rgba(20,24,35,.04), 0 10px 30px rgba(20,24,35,.07);
+      }
     }
     * { box-sizing: border-box; }
-    html, body { margin: 0; background: var(--bg); color: var(--text); }
+    html { -webkit-text-size-adjust: 100%; }
     body {
-      font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-      min-height: 100vh; display: flex; flex-direction: column; align-items: center;
-      padding: 48px 16px 32px;
-      background: radial-gradient(900px 500px at 50% -10%, rgba(79,124,255,.22), transparent 70%), var(--bg);
+      margin: 0; color: var(--text); background: var(--bg);
+      font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      -webkit-font-smoothing: antialiased; overflow-x: hidden;
     }
-    main { width: 100%; max-width: 460px; }
+    .bgfx {
+      position: absolute; inset: 0 0 auto 0; height: 760px; pointer-events: none; z-index: -1;
+      background:
+        radial-gradient(600px 380px at 30% -60px, var(--glow), transparent 70%),
+        radial-gradient(560px 360px at 75% -40px, var(--glow-b), transparent 70%);
+    }
+    a { color: inherit; }
+    .wrap { width: 100%; max-width: 1040px; margin: 0 auto; padding: 0 16px; }
+    @media (min-width: 640px) { .wrap { padding: 0 28px; } }
+
+    /* hero */
+    .hero { text-align: center; padding: 64px 0 36px; }
     .logo {
-      width: 72px; height: 72px; border-radius: 20px; margin: 0 auto 16px;
-      background: linear-gradient(135deg, var(--accent), #8a5cff);
-      display: grid; place-items: center; box-shadow: 0 10px 30px rgba(79,124,255,.35);
+      width: 84px; height: 84px; border-radius: 24px; margin: 0 auto 22px; background: var(--grad);
+      display: grid; place-items: center;
+      box-shadow: 0 14px 40px rgba(79,124,255,.38), 0 0 0 1px rgba(255,255,255,.12) inset;
     }
-    .logo svg { width: 38px; height: 38px; }
-    h1 { text-align: center; margin: 0; font-size: 30px; letter-spacing: -.02em; }
-    .tag { text-align: center; color: var(--muted); margin: 6px 0 28px; }
-    .ver { display: inline-block; font-size: 13px; color: var(--muted); background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; }
-    .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px; margin-bottom: 14px; }
-    .update {
-      display: block; text-align: center; text-decoration: none; color: #fff; font-weight: 650; font-size: 19px;
-      background: var(--accent); border-radius: 14px; padding: 18px 16px;
-      box-shadow: 0 8px 24px rgba(79,124,255,.35); transition: background .15s, transform .1s;
+    .logo svg { width: 44px; height: 44px; }
+    h1 { margin: 0; font-size: clamp(36px, 7vw, 56px); line-height: 1.05; letter-spacing: -.035em; font-weight: 750; }
+    .tagline { margin: 14px auto 0; max-width: 34ch; color: var(--muted); font-size: clamp(17px, 2.4vw, 20px); }
+    .pill {
+      display: inline-flex; align-items: center; gap: 8px; margin-top: 22px;
+      padding: 6px 14px 6px 10px; border-radius: 999px; font-size: 13.5px; color: var(--muted);
+      background: color-mix(in srgb, var(--card) 80%, transparent); border: 1px solid var(--line);
     }
-    .update:hover { background: var(--accent-2); }
-    .update:active { transform: scale(.99); }
-    .small { font-size: 13px; color: var(--muted); text-align: center; margin: 10px 4px 0; }
-    .dl { display: flex; gap: 10px; flex-wrap: wrap; }
-    .dl a {
-      flex: 1 1 180px; display: flex; align-items: center; justify-content: center; gap: 8px;
-      text-decoration: none; color: var(--text); background: #1f2533; border: 1px solid var(--line);
-      border-radius: 12px; padding: 14px 12px; font-weight: 600;
+    .pill b { color: var(--text); font-weight: 650; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #3ccf8e; box-shadow: 0 0 0 4px rgba(60,207,142,.16); }
+    .pill.off .dot { background: var(--faint); box-shadow: none; }
+
+    /* downloads */
+    .downloads { display: grid; gap: 16px; grid-template-columns: 1fr; }
+    @media (min-width: 720px) { .downloads { grid-template-columns: 1fr 1fr; gap: 20px; } }
+    .dl {
+      position: relative; display: flex; align-items: center; gap: 18px; text-decoration: none;
+      padding: 22px; border-radius: var(--radius); background: var(--card); border: 1px solid var(--line);
+      box-shadow: var(--shadow); transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
     }
-    .dl a:hover { border-color: var(--accent); }
-    .dl a[aria-disabled="true"] { opacity: .5; pointer-events: none; }
-    .dl svg { width: 20px; height: 20px; flex: none; }
-    h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 12px; font-weight: 600; }
-    .notes { white-space: pre-wrap; color: #c9cfdb; font-size: 14px; margin: 12px 0 0; }
-    footer { margin-top: auto; padding-top: 24px; font-size: 12px; color: #6b7487; text-align: center; }
+    .dl:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); box-shadow: var(--shadow), 0 10px 34px var(--glow); }
+    .dl:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+    .dl[aria-disabled="true"] { pointer-events: none; }
+    .dl[aria-disabled="true"] .btn { opacity: .5; }
+    .ico {
+      flex: none; width: 60px; height: 60px; border-radius: 16px; display: grid; place-items: center;
+      background: var(--card-2); border: 1px solid var(--line); color: var(--accent);
+    }
+    .ico svg { width: 30px; height: 30px; }
+    .dl .txt { flex: 1; min-width: 0; }
+    .dl .os, .dl .meta { display: block; }
+    .dl .os { font-size: 20px; font-weight: 700; letter-spacing: -.01em; }
+    .dl .meta { font-size: 13.5px; color: var(--muted); margin-top: 2px; }
+    .btn {
+      flex: none; display: inline-flex; align-items: center; gap: 8px; color: #fff; font-weight: 650; font-size: 15px;
+      padding: 12px 18px; border-radius: 12px; background: var(--grad); box-shadow: 0 6px 18px rgba(79,124,255,.35);
+    }
+    .btn svg { width: 18px; height: 18px; }
+    @media (max-width: 479px) {
+      .dl { flex-wrap: wrap; padding: 18px; gap: 14px; }
+      .ico { width: 52px; height: 52px; border-radius: 14px; }
+      .btn { width: 100%; justify-content: center; padding: 13px 18px; }
+    }
+    .auto { margin: 22px auto 0; max-width: 560px; color: var(--muted); font-size: 14.5px; text-align: center; text-wrap: balance; }
+    .auto svg { display: inline-block; width: 17px; height: 17px; vertical-align: -3px; margin-right: 7px; color: var(--accent); }
+
+    /* sections */
+    section.wrap { margin-top: 88px; }
+    @media (max-width: 639px) { section.wrap { margin-top: 64px; } }
+    .head { text-align: center; }
+    .eyebrow { font-size: 12.5px; text-transform: uppercase; letter-spacing: .12em; font-weight: 700; margin: 0 0 8px;
+      background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; display: inline-block; }
+    h2 { margin: 0 0 22px; font-size: clamp(26px, 4vw, 34px); letter-spacing: -.025em; line-height: 1.15; }
+
+    /* what's new */
+    .news { max-width: 760px; margin: 0 auto; }
+    .latest {
+      position: relative; border-radius: var(--radius); padding: 1px; background: var(--grad); box-shadow: var(--shadow), 0 12px 40px var(--glow);
+    }
+    .latest > div { border-radius: calc(var(--radius) - 1px); background: var(--card); padding: 24px; }
+    @media (min-width: 640px) { .latest > div { padding: 28px 30px; } }
+    .badge { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); }
+    .badge .tag { color: #fff; background: var(--grad); padding: 3px 10px; border-radius: 999px; font-weight: 650; font-size: 12px; letter-spacing: .02em; }
+    .latest h3 { margin: 12px 0 14px; font-size: 22px; letter-spacing: -.015em; }
+    ul.changes { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+    ul.changes li { position: relative; padding-left: 30px; }
+    ul.changes li::before {
+      content: ""; position: absolute; left: 0; top: 2px; width: 20px; height: 20px; border-radius: 50%;
+      background: color-mix(in srgb, var(--accent) 16%, transparent)
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='none' stroke='%236d8dff' stroke-width='3' stroke-linecap='round' stroke-linejoin='round' d='m6 12.5 4 4 8-9'/%3E%3C/svg%3E") center/12px no-repeat;
+    }
+    .older { margin-top: 16px; display: grid; gap: 10px; }
+    details { border: 1px solid var(--line); border-radius: 16px; background: var(--card); }
+    summary {
+      list-style: none; cursor: pointer; display: flex; align-items: center; gap: 12px; padding: 15px 18px; border-radius: 16px;
+    }
+    summary::-webkit-details-marker { display: none; }
+    summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    summary .v { font-weight: 700; font-size: 14px; color: var(--accent); min-width: 28px; }
+    summary .t { flex: 1; font-weight: 600; min-width: 0; }
+    summary .d { color: var(--faint); font-size: 13px; white-space: nowrap; }
+    summary .chev { width: 18px; height: 18px; color: var(--faint); transition: transform .2s; flex: none; }
+    details[open] summary .chev { transform: rotate(180deg); }
+    details ul.changes { padding: 0 18px 18px 18px; font-size: 15px; color: var(--muted); }
+    .empty { color: var(--muted); text-align: center; }
+
+    /* how it works */
+    .steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 16px; grid-template-columns: 1fr; counter-reset: s; }
+    @media (min-width: 760px) { .steps { grid-template-columns: repeat(3, 1fr); gap: 20px; } }
+    .steps li { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; box-shadow: var(--shadow); }
+    .num {
+      width: 36px; height: 36px; border-radius: 11px; display: grid; place-items: center; margin-bottom: 14px;
+      background: var(--grad); color: #fff; font-weight: 750; font-size: 16px;
+    }
+    .steps h3 { margin: 0 0 6px; font-size: 17px; letter-spacing: -.01em; }
+    .steps p { margin: 0; color: var(--muted); font-size: 15px; }
+    @media (max-width: 759px) {
+      .steps li { display: grid; grid-template-columns: auto 1fr; column-gap: 16px; padding: 18px; }
+      .num { grid-row: span 2; margin: 0; }
+    }
+    .code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: .92em; background: var(--card-2); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; color: var(--text); }
+
+    footer { margin-top: 72px; border-top: 1px solid var(--line); padding: 26px 0 34px; color: var(--faint); font-size: 13.5px; }
+    footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 20px; justify-content: space-between; align-items: center; }
+    footer .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--muted); font-weight: 600; }
+    footer .mini { width: 22px; height: 22px; border-radius: 7px; background: var(--grad); display: grid; place-items: center; }
+    footer .mini svg { width: 12px; height: 12px; }
+    @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
   </style>
 </head>
 <body>
-  <main>
+  <div class="bgfx" aria-hidden="true"></div>
+
+  <header class="hero wrap">
     <div class="logo" aria-hidden="true">
       <svg viewBox="0 0 24 24"><path fill="#fff" d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2Z" transform="translate(-1 -1)"/></svg>
     </div>
     <h1>ChatRoom</h1>
-    <p class="tag">Private chat between your PC and phone<br><span class="ver" id="ver">Latest version: …</span></p>
+    <p class="tagline">Your private chat between PC and phone</p>
+    <div class="pill off" id="pill"><span class="dot" aria-hidden="true"></span><span id="pillText">Checking latest version…</span></div>
+  </header>
 
-    <div class="card">
-      <h2>Install</h2>
-      <div class="dl">
-        <a id="exe" href="#" aria-disabled="true">
-          <svg viewBox="0 0 24 24"><path fill="currentColor" d="M3 5.5 10.5 4.5v7H3v-6Zm0 13 7.5 1v-7H3v6Zm8.5 1.2L21 21v-8.5h-9.5v7.2Zm0-15.4v7.2H21V3l-9.5 1.3Z"/></svg>
-          Download for Windows
+  <main>
+    <div class="wrap">
+      <div class="downloads">
+        <a class="dl" id="exe" href="https://github.com/JanZnidaric911/chatroom/releases/latest/download/ChatRoom-Setup.exe">
+          <span class="ico" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path fill="currentColor" d="M3 5.6 10.4 4.6v7H3v-6Zm0 12.8 7.4 1v-6.9H3v5.9Zm8.3 1.1L21 21v-8.6h-9.7v7.1Zm0-15.1v7.2H21V3l-9.7 1.4Z"/></svg>
+          </span>
+          <span class="txt">
+            <span class="os">Windows</span>
+            <span class="meta" id="exeMeta">Windows 10 &amp; 11</span>
+          </span>
+          <span class="btn"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19.5h14"/></svg>Download</span>
         </a>
-        <a id="apk" href="#" aria-disabled="true">
-          <svg viewBox="0 0 24 24"><path fill="currentColor" d="M17.6 9.5l1.8-3.2a.4.4 0 0 0-.7-.4l-1.9 3.3a11 11 0 0 0-9.6 0L5.3 5.9a.4.4 0 0 0-.7.4l1.8 3.2A9.6 9.6 0 0 0 1.5 17h21a9.6 9.6 0 0 0-4.9-7.5ZM7 14.3a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm10 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"/></svg>
-          Download for Android
+        <a class="dl" id="apk" href="https://github.com/JanZnidaric911/chatroom/releases/latest/download/ChatRoom.apk">
+          <span class="ico" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path fill="currentColor" d="M17.6 9.6l1.8-3.2a.45.45 0 0 0-.78-.44l-1.85 3.3a10.8 10.8 0 0 0-9.54 0L5.38 5.96a.45.45 0 0 0-.78.44l1.8 3.2A9.5 9.5 0 0 0 1.6 17.2h20.8a9.5 9.5 0 0 0-4.8-7.6ZM7.1 14.4a1.05 1.05 0 1 1 0-2.1 1.05 1.05 0 0 1 0 2.1Zm9.8 0a1.05 1.05 0 1 1 0-2.1 1.05 1.05 0 0 1 0 2.1Z"/></svg>
+          </span>
+          <span class="txt">
+            <span class="os">Android</span>
+            <span class="meta" id="apkMeta">Android 5.1 or newer</span>
+          </span>
+          <span class="btn"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19.5h14"/></svg>Download</span>
         </a>
       </div>
-      <p class="small">Always the latest version. Already installed? The app updates itself automatically every time you open it.</p>
-      <p class="notes" id="notes" hidden></p>
+      <p class="auto">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M20 11a8 8 0 0 0-14.6-4.5M4 4v3.5h3.5M4 13a8 8 0 0 0 14.6 4.5M20 20v-3.5h-3.5"/></svg>
+        <span>Already installed? The app updates itself automatically every time you open it.</span>
+      </p>
     </div>
+
+    <section class="wrap" id="whats-new" aria-labelledby="newsTitle">
+      <div class="news">
+        <div class="head"><p class="eyebrow">Changelog</p>
+        <h2 id="newsTitle">What’s new</h2></div>
+        <div id="news"><p class="empty">Loading release notes…</p></div>
+      </div>
+    </section>
+
+    <section class="wrap" aria-labelledby="howTitle">
+      <div class="head"><p class="eyebrow">Getting started</p>
+      <h2 id="howTitle">How it works</h2></div>
+      <ol class="steps">
+        <li><div class="num">1</div><h3>Install on both devices</h3><p>Get ChatRoom for your Windows PC and your Android phone.</p></li>
+        <li><div class="num">2</div><h3>Join the same room</h3><p>Create a room on one device, then type its code on the other.</p></li>
+        <li><div class="num">3</div><h3>Chat &amp; share</h3><p>Send messages, photos, videos and files in full quality, over any network.</p></li>
+      </ol>
+    </section>
   </main>
-  <footer>ChatRoom · private build</footer>
+
+  <footer>
+    <div class="wrap">
+      <span class="brand"><span class="mini" aria-hidden="true"><svg viewBox="0 0 24 24"><path fill="#fff" d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2Z" transform="translate(-1 -1)"/></svg></span>ChatRoom</span>
+      <span>Private chat between your PC and phone · <span id="footVer">private build</span></span>
+    </div>
+  </footer>
 
   <script>
     (function () {
-      function setLink(id, url) {
-        var a = document.getElementById(id);
-        if (!url || /PLACEHOLDER/i.test(url)) return;
-        a.href = new URL(url, location.href).href; // relative URLs are relative to this page
-        a.removeAttribute('aria-disabled');
+      var $ = function (id) { return document.getElementById(id); };
+      function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+      function getJSON(url) {
+        return fetch(url + (url.indexOf('?') < 0 ? '?' : '&') + 't=' + Date.now(), { cache: 'no-store' })
+          .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
       }
-      fetch('update/manifest.json?t=' + Date.now(), { cache: 'no-store' })
-        .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
-        .then(function (m) {
-          document.getElementById('ver').textContent = 'Latest version: v' + m.version;
-          setLink('exe', m.exeUrl);
-          setLink('apk', m.apkUrl);
-          if (m.notes) { var n = document.getElementById('notes'); n.textContent = m.notes; n.hidden = false; }
-        })
-        .catch(function () { document.getElementById('ver').textContent = 'Version info unavailable'; });
+      function fmtDate(s) {
+        var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s || '');
+        if (!m) return s || '';
+        try { return new Date(+m[1], m[2] - 1, +m[3]).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }); }
+        catch (e) { return s; }
+      }
+      function fmtSize(b) {
+        b = Number(b); if (!(b > 0)) return '';
+        return b >= 1048576 ? (b / 1048576).toFixed(b >= 10485760 ? 0 : 1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB';
+      }
+      function setLink(id, url, size) {
+        if (!url || /PLACEHOLDER/i.test(url)) return;
+        var a = $(id);
+        a.href = new URL(url, location.href).href;
+        var s = fmtSize(size);
+        if (s) $(id + 'Meta').textContent += ' · ' + s;
+      }
+      function changeList(changes) {
+        var ul = el('ul', 'changes');
+        (changes || []).forEach(function (c) { ul.appendChild(el('li', '', String(c))); });
+        return ul;
+      }
+      var chevron = '<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/></svg>';
+
+      var manifestP = getJSON('update/manifest.json').catch(function () { return null; });
+      var logP = getJSON('changelog.json').then(function (l) {
+        return Array.isArray(l) ? l.filter(function (e) { return e && e.version; }).sort(function (a, b) { return b.version - a.version; }) : [];
+      }).catch(function () { return null; });
+
+      // Downloads + version pill
+      Promise.all([manifestP, logP]).then(function (r) {
+        var m = r[0], log = r[1] || [];
+        var latestVer = m && m.version ? m.version : (log[0] && log[0].version);
+        var entry = log.filter(function (e) { return e.version === latestVer; })[0];
+        var date = entry ? fmtDate(entry.date) : (m && m.published ? fmtDate(String(m.published).slice(0, 10)) : '');
+        if (latestVer) {
+          $('pill').classList.remove('off');
+          $('pillText').innerHTML = '';
+          $('pillText').appendChild(el('span', '', 'Latest version '));
+          $('pillText').appendChild(el('b', '', 'v' + latestVer));
+          if (date) $('pillText').appendChild(el('span', '', ' · ' + date));
+          $('footVer').textContent = 'v' + latestVer;
+        } else {
+          $('pillText').textContent = 'Version info unavailable';
+        }
+        if (m) { setLink('exe', m.exeUrl, m.exeSize); setLink('apk', m.apkUrl, m.apkSize); }
+
+        // What's new
+        var box = $('news'); box.innerHTML = '';
+        if (!log.length) {
+          if (m && m.notes) {
+            var card0 = el('div', 'latest'), in0 = el('div');
+            var b0 = el('div', 'badge'); b0.appendChild(el('span', 'tag', 'Latest update')); b0.appendChild(el('span', '', 'v' + m.version));
+            in0.appendChild(b0); in0.appendChild(el('p', '', m.notes)); card0.appendChild(in0); box.appendChild(card0);
+          } else {
+            box.appendChild(el('p', 'empty', 'Release notes are not available right now.'));
+          }
+          return;
+        }
+        var first = log[0];
+        var card = el('article', 'latest'), inner = el('div');
+        var badge = el('div', 'badge');
+        badge.appendChild(el('span', 'tag', 'Latest update'));
+        badge.appendChild(el('span', '', 'v' + first.version + (first.date ? ' · ' + fmtDate(first.date) : '')));
+        inner.appendChild(badge);
+        inner.appendChild(el('h3', '', first.title || ('Version ' + first.version)));
+        inner.appendChild(changeList(first.changes));
+        card.appendChild(inner); box.appendChild(card);
+
+        if (log.length > 1) {
+          var older = el('div', 'older');
+          log.slice(1).forEach(function (e) {
+            var d = el('details'), s = el('summary');
+            s.appendChild(el('span', 'v', 'v' + e.version));
+            s.appendChild(el('span', 't', e.title || ('Version ' + e.version)));
+            if (e.date) s.appendChild(el('span', 'd', fmtDate(e.date)));
+            s.insertAdjacentHTML('beforeend', chevron);
+            d.appendChild(s); d.appendChild(changeList(e.changes));
+            older.appendChild(d);
+          });
+          box.appendChild(older);
+        }
+      });
     })();
   </script>
 </body>

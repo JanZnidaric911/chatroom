@@ -1,0 +1,36 @@
+[
+  {
+    "version": 3,
+    "date": "2026-11-05",
+    "title": "Big redesign",
+    "changes": [
+      "Completely redesigned, modern look on PC and phone",
+      "Delete any single message, photo, video or file for everyone, right from the message",
+      "Save photos, videos and files with one tap on the download icon",
+      "See when the other person is typing",
+      "See photos, videos and files coming in while they are still being sent, with progress",
+      "Removed \"Clear chat for everyone\" so your history can't be wiped by accident"
+    ]
+  },
+  {
+    "version": 2,
+    "date": "2026-11-05",
+    "title": "Delete & auto-update",
+    "changes": [
+      "Delete messages for everyone or just for you",
+      "Select several messages at once",
+      "The app updates itself automatically when opened"
+    ]
+  },
+  {
+    "version": 1,
+    "date": "2026-11-05",
+    "title": "First release",
+    "changes": [
+      "Chat between PC and phone over any network",
+      "Send text, photos, videos and files in full quality",
+      "Rooms joined with a code",
+      "Messages queue while the other device is offline"
+    ]
+  }
+]
