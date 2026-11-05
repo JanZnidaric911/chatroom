@@ -1,6 +1,8 @@
 /* Linoa over-the-air updater (self-contained: own CSS, own DOM).
  *
- * Reads:  window.CHATROOM_VERSION (version.js), window.CHATROOM_UPDATE_URL (update-config.js)
+ * Reads:  window.CHATROOM_VERSION (integer build, version.js; all comparisons use it),
+ *         window.CHATROOM_VERSION_NAME (display name like "6.01", optional; older bundles lack it),
+ *         window.CHATROOM_UPDATE_URL (update-config.js)
  * Fetches <CHATROOM_UPDATE_URL>update/manifest.json and update/files/<path>.
  * Install targets:
  *   electron: window.electronAPI.installUpdate / resetUpdate / reloadApp / nativeVersion / onDeepLink
@@ -13,6 +15,9 @@
   'use strict';
 
   const CUR = Number(window.CHATROOM_VERSION) || 0;
+  // Display names only ("6.01"); fall back to the integer build when missing.
+  const CUR_NAME = String(window.CHATROOM_VERSION_NAME || CUR);
+  const vname = (m) => String((m && m.name) || (m && m.version));
   const BASE = String(window.CHATROOM_UPDATE_URL || '');
   const CONFIGURED = /^https?:\/\//i.test(BASE) && !/PLACEHOLDER/i.test(BASE);
   const cap = window.Capacitor;
@@ -342,7 +347,7 @@
   async function refreshMeta() {
     const u = ensureUi();
     const nv = await nativeVersion();
-    let t = 'Installed version: v' + CUR;
+    let t = 'Installed version: v' + CUR_NAME;
     if (kind === 'electron' && api.getUpdateInfo) {
       try {
         const info = await api.getUpdateInfo();
@@ -392,7 +397,7 @@
       if (topbar && btn && btn.parentNode === topbar) topbar.insertBefore(badge, btn);
       else { badge.classList.add('floating'); document.body.appendChild(badge); }
     }
-    badge.textContent = 'Update v' + a.version;
+    badge.textContent = 'Update v' + vname(a);
     badge.hidden = false;
     markSettingsEntry();
   }
@@ -401,7 +406,7 @@
     const span = document.querySelector('.cru-entry span');
     if (!span) return;
     const a = storedAvailable();
-    span.textContent = 'Version ' + CUR + (a ? ' · v' + a.version + ' available' : '');
+    span.textContent = 'Version ' + CUR_NAME + (a ? ' · v' + vname(a) + ' available' : '');
     if (a) span.appendChild(el('i', 'cru-dot'));
   }
 
@@ -437,7 +442,7 @@
     try {
       const m = await fetchManifest();
       state.manifest = m;
-      if (m.version > CUR) ls.set(LS_AVAIL, JSON.stringify({ version: m.version, notes: m.notes || '' }));
+      if (m.version > CUR) ls.set(LS_AVAIL, JSON.stringify({ version: m.version, name: m.name || '', notes: m.notes || '' }));
       else ls.del(LS_AVAIL);
       updateBadge();
       if (!silent) {
@@ -461,11 +466,11 @@
     u.notes.hidden = !m.notes; u.notes.textContent = m.notes || '';
     if (m.version <= CUR) {
       u.notes.hidden = true;
-      setStatus('You have the latest version (v' + CUR + ').');
+      setStatus('You have the latest version (v' + CUR_NAME + ').');
       return;
     }
     if (kind === 'browser') {
-      setStatus('Version ' + m.version + ' is available. Open the Linoa app to install it (this browser page cannot update itself).');
+      setStatus('Version ' + vname(m) + ' is available. Open the Linoa app to install it (this browser page cannot update itself).');
       u.act.textContent = 'Download page'; u.act.hidden = false;
       u.act.onclick = () => openExternal(siteUrl());
       return;
@@ -473,15 +478,15 @@
     const nv = await nativeVersion();
     const need = neededNative(m);
     if (nv < need) {
-      setStatus('Version ' + m.version + ' is available, but this update needs a reinstall: download and install the latest ' +
+      setStatus('Version ' + vname(m) + ' is available, but this update needs a reinstall: download and install the latest ' +
         (kind === 'android' ? 'APK' : 'installer') + ' from the website. Your chats are kept.');
       u.act.textContent = 'Open download page'; u.act.hidden = false;
       u.act.onclick = () => openExternal(siteUrl());
       return;
     }
     const total = m.files.reduce((s, f) => s + (Number(f.size) || 0), 0);
-    setStatus('Update to v' + m.version + '? (' + fmtBytes(total) + ')' + (fromDeepLink ? '' : ''));
-    u.act.textContent = 'Update to v' + m.version; u.act.hidden = false;
+    setStatus('Update to v' + vname(m) + '? (' + fmtBytes(total) + ')' + (fromDeepLink ? '' : ''));
+    u.act.textContent = 'Update to v' + vname(m); u.act.hidden = false;
     u.act.onclick = () => doInstall(m);
   }
 
@@ -489,10 +494,10 @@
     const u = ensureUi();
     setBusy(true); u.act.hidden = true;
     try {
-      setStatus('Downloading v' + m.version + '…'); setProgress(0);
+      setStatus('Downloading v' + vname(m) + '…'); setProgress(0);
       const files = await downloadAll(m, (done, total) => {
         setProgress(total ? done / total * 0.8 : 0);
-        setStatus('Downloading v' + m.version + '… ' + fmtBytes(done) + ' / ' + fmtBytes(total));
+        setStatus('Downloading v' + vname(m) + '… ' + fmtBytes(done) + ' / ' + fmtBytes(total));
       });
       setStatus('Installing…'); setProgress(0.85);
       await install(m, files, (i, n) => setProgress(0.85 + 0.15 * i / n));
@@ -530,7 +535,7 @@
     if (just) {
       ls.del(LS_JUST);
       suppressLaunchUrl = true;
-      if (Number(just) === CUR) { toast('Linoa updated to v' + CUR); ls.del(LS_AVAIL); ls.del('chatroom.update.tries'); updateBadge(); }
+      if (Number(just) === CUR) { toast('Linoa updated to v' + CUR_NAME); ls.del(LS_AVAIL); ls.del('chatroom.update.tries'); updateBadge(); }
     }
 
     if (kind === 'android') {
@@ -619,7 +624,7 @@
     // Note: the try counter is NOT cleared here; if a new version rolls back to an older one, the
     // older one must still see how many times it already tried (cleared only after a confirmed install).
     if (!(m.version > CUR)) { ls.del(LS_AVAIL); updateBadge(); await offerNativeInstaller(m); return; }
-    ls.set(LS_AVAIL, JSON.stringify({ version: m.version, notes: m.notes || '' }));
+    ls.set(LS_AVAIL, JSON.stringify({ version: m.version, name: m.name || '', notes: m.notes || '' }));
     updateBadge();
     const u = ensureUi();
     const nv = await nativeVersion();
@@ -640,7 +645,7 @@
   }
 
   window.ChatUpdater = {
-    version: CUR, kind, configured: CONFIGURED,
+    version: CUR, versionName: CUR_NAME, kind, configured: CONFIGURED,
     open: showPanel, check: () => runCheck(false), checkSilently: () => runCheck(true),
     handleDeepLink, _sha256Hex: sha256Hex, _sha256Fallback: sha256Fallback
   };

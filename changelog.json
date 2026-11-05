@@ -1,5 +1,19 @@
 [
   {
+    "version": 7,
+    "name": "6.01",
+    "date": "2026-11-05",
+    "title": "Names in rooms",
+    "changes": [
+      "When you create or join a room you choose your name, and it is shown above the other person's messages",
+      "Names in a room must be different: if the name is already taken, you are asked to pick another one",
+      "\"Change my name\" in the room menu",
+      "The \"Saved\" popup now appears at the top of the chat, so it no longer covers the save buttons of the next files",
+      "New \"Open the Linoa website\" button in Settings",
+      "Small updates now get version numbers like v6.01 instead of a whole new version"
+    ]
+  },
+  {
     "version": 6,
     "date": "2026-11-05",
     "title": "Works on any network",

@@ -1,1 +1,2 @@
-window.CHATROOM_VERSION = 6;
+window.CHATROOM_VERSION = 7;
+window.CHATROOM_VERSION_NAME = '6.01';

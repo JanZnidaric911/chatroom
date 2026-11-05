@@ -11,6 +11,10 @@
  *                                           sender understands, e.g. ['typing','upload']. Optional messages
  *                                           below are only sent to a peer whose hello advertised them, so
  *                                           older clients (no caps) never see them.
+ *                                           name = sender's name in THIS room (room.myName, falls back to
+ *                                           the device name for rooms without one). sync:false = name-only
+ *                                           update (sent after a rename), no have/have-end follows. If the
+ *                                           names collide, the joiner (slot 2) must pick another one.
  *     have       {t,ids:[...]}              batches (<=1000) of every message id this device has COMPLETELY stored,
  *                                           plus every tombstoned (deleted) id, so deleted messages are never re-sent
  *     have-end   {t}                        -> peer now sends each of ITS OWN messages missing from that set;
@@ -733,7 +737,7 @@
 
     async sendHello(nameOnly) {
       const conn = this.conn;
-      if (!this.sendJSON({ t: 'hello', v: 1, name: settings.deviceName, sync: !nameOnly, caps: CAPS })) return;
+      if (!this.sendJSON({ t: 'hello', v: 1, name: myNameIn(this.room), sync: !nameOnly, caps: CAPS })) return;
       if (nameOnly) return;
       const [msgs, tombs] = await Promise.all([roomMessages(this.code), roomTombs(this.code)]);
       if (conn !== this.conn) return;
@@ -941,6 +945,7 @@
       rooms.set(this.code, this.room);
       dbPut('rooms', this.room).catch(() => {});
       onConnState(this);
+      onPeerName(this.code);
       if (o.sync !== false) this.theirIds = new Set();
     }
 
@@ -1387,6 +1392,7 @@
     openMenu(anchor, [
       { icon: 'hash', label: 'Show code', fn: () => showCode(r, false) },
       { icon: 'pencil', label: 'Rename', fn: () => renameRoom(r) },
+      { icon: 'user', label: 'Change my name', fn: () => changeMyName(r) },
       { sep: true },
       { icon: 'trash', label: 'Remove from this device', danger: true, fn: () => deleteRoom(r) }
     ]);
@@ -1433,7 +1439,9 @@
   }
 
   // ---------- modal
-  function openModal(build, cls) {
+  let modalLocked = false; // true while a dialog that must be answered is open (Esc/backdrop/back do nothing)
+  function openModal(build, cls, locked) {
+    modalLocked = !!locked;
     const body = $('#modalBody');
     body.innerHTML = '';
     $('#dialog').className = 'dialog' + (cls ? ' ' + cls : '');
@@ -1443,7 +1451,8 @@
     const f = body.querySelector('input, textarea');
     if (f && !isTouch) setTimeout(() => f.focus(), 30);
   }
-  function closeModal() { $('#modal').hidden = true; $('#modalBody').innerHTML = ''; }
+  function closeModal() { modalLocked = false; $('#modal').hidden = true; $('#modalBody').innerHTML = ''; }
+  function dismissModal() { if (!modalLocked) closeModal(); } // Esc / backdrop / Android back
   function confirmDialog(title, text, okLabel, danger) {
     return new Promise((resolve) => {
       openModal((b) => {
@@ -1479,11 +1488,118 @@
     });
   }
 
+  // ---------- per-room names (room.myName = how I appear in that room; sent as hello.name)
+  const NAME_MAX = 30;
+  function myNameIn(r) { return (r && r.myName) || settings.deviceName; }
+  function lastName() { return lsGet('lastName', '') || settings.deviceName; }
+  const nameKey = (s) => String(s || '').trim().toLowerCase();
+  function sameName(a, b) { return !!nameKey(a) && nameKey(a) === nameKey(b); }
+  function dupText(n) { return '“' + String(n).trim() + '” is already used in this room. Choose another name.'; }
+  // '' if ok, else the error to show. peerName = the other member's name, if known.
+  function nameError(v, peerName) {
+    if (!v) return 'Enter a name.';
+    if (v.length > NAME_MAX) return 'At most ' + NAME_MAX + ' characters.';
+    if (/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(v)) return 'The name contains invalid characters.';
+    if (peerName && sameName(v, peerName)) return dupText(v);
+    return '';
+  }
+  // Name input field (label + input + error line) for use inside a dialog.
+  function nameField(b, value, labelText) {
+    b.appendChild(el('label', null, labelText || 'Your name in this room'));
+    const inp = el('input');
+    inp.value = value || '';
+    inp.maxLength = NAME_MAX;
+    inp.autocomplete = 'off';
+    const err = el('div', 'err');
+    inp.addEventListener('input', () => { err.textContent = ''; });
+    b.append(inp, err);
+    return { inp, err };
+  }
+  // opts: {title, text, value, okLabel, peer: () => peerName, locked, error}. Resolves the name, or null (cancel).
+  function nameDialog(opts) {
+    return new Promise((resolve) => {
+      openModal((b) => {
+        const head = el('div', 'dlg-head');
+        head.innerHTML = svg('user', 22);
+        head.appendChild(el('h3', null, opts.title));
+        b.appendChild(head);
+        if (opts.text) b.appendChild(el('p', null, opts.text));
+        const f = nameField(b, opts.value);
+        if (opts.error) f.err.textContent = opts.error;
+        const row = el('div', 'row');
+        const ok = el('button', 'btn primary', opts.okLabel || 'Save');
+        ok.onclick = () => {
+          const v = f.inp.value.trim();
+          const e = nameError(v, opts.peer ? opts.peer() : '');
+          if (e) { f.err.textContent = e; f.inp.focus(); return; }
+          closeModal(); resolve(v);
+        };
+        f.inp.onkeydown = (e) => { if (e.key === 'Enter') ok.click(); };
+        if (!opts.locked) {
+          const cancel = el('button', 'btn ghost', 'Cancel');
+          cancel.onclick = () => { closeModal(); resolve(null); };
+          row.appendChild(cancel);
+        }
+        row.appendChild(ok);
+        b.appendChild(row);
+      }, null, opts.locked);
+    });
+  }
+  async function setMyName(r, name) {
+    lsSet('lastName', name);
+    if (r.myName === name) return;
+    r.myName = name;
+    await dbPut('rooms', r).catch(() => {});
+    const c = conns.get(r.code);
+    if (c && c.conn) c.sendHello(true);
+  }
+  async function changeMyName(r) {
+    const name = await nameDialog({
+      title: 'Change my name', text: 'How you appear to the other member of “' + r.name + '”.',
+      value: myNameIn(r), okLabel: 'Save', peer: () => r.peerName
+    });
+    if (name == null) return;
+    await setMyName(r, name);
+    toast('Name changed to ' + name, null, 2000, 'check');
+  }
+  // A hello arrived (new peer name): refresh labels, and as joiner resolve a name clash.
+  const dupAsking = new Set();
+  function onPeerName(code) {
+    if (code === current) updateSenderLabels();
+    const r = rooms.get(code);
+    if (!r || r.slot !== 2 || !sameName(myNameIn(r), r.peerName) || dupAsking.has(code)) return;
+    dupAsking.add(code);
+    nameDialog({
+      title: 'Choose another name', text: 'In room “' + r.name + '”.', error: dupText(myNameIn(r)),
+      value: '', okLabel: 'Save', peer: () => r.peerName, locked: true
+    }).then((name) => setMyName(r, name)).finally(() => {
+      dupAsking.delete(code);
+      onPeerName(code); // peer may have renamed meanwhile
+    });
+  }
+  // Rooms from before per-room names: ask once per session when opened (cancel = keep the device name).
+  const askedOldName = new Set();
+  async function askOldRoomName(r) {
+    if (r.myName || askedOldName.has(r.code) || dupAsking.has(r.code) || !$('#modal').hidden) return;
+    askedOldName.add(r.code);
+    const name = await nameDialog({
+      title: 'Choose your name', text: 'Rooms now have a name per member, so the other side knows who is writing. Your name in “' + r.name + '”:',
+      value: lastName(), okLabel: 'Save', peer: () => r.peerName
+    });
+    if (name != null && !r.myName) await setMyName(r, name);
+  }
+
   // ---------- room actions
   async function createRoom() {
+    const myName = await nameDialog({
+      title: 'Create room', text: 'Choose your name in this room. The other member sees it next to your messages.',
+      value: lastName(), okLabel: 'Create'
+    });
+    if (myName == null) return;
+    lsSet('lastName', myName);
     let code;
     do { code = genCode(); } while (rooms.has(code));
-    const r = { code, slot: 1, name: 'Room ' + fmtCode(code), created: Date.now() };
+    const r = { code, slot: 1, name: 'Room ' + fmtCode(code), created: Date.now(), myName };
     await dbPut('rooms', r);
     rooms.set(code, r);
     startRoom(r);
@@ -1548,6 +1664,8 @@
       inp.spellcheck = false;
       inp.maxLength = 12;
       const err = el('div', 'err');
+      b.append(inp, err);
+      const nf = nameField(b, lastName());
       const row = el('div', 'row');
       const cancel = el('button', 'btn ghost', 'Cancel');
       const ok = el('button', 'btn primary', 'Join');
@@ -1555,8 +1673,13 @@
       const go = async () => {
         const code = String(inp.value).toUpperCase().replace(/[^A-Z0-9]/g, '');
         if (!validCode(code)) { err.textContent = 'The code has 8 characters (letters and digits, no 0/O/1/I).'; return; }
-        if (rooms.has(code)) { closeModal(); openChat(code); return; }
-        const r = { code, slot: 2, name: 'Room ' + fmtCode(code), created: Date.now() };
+        const myName = nf.inp.value.trim();
+        const old = rooms.get(code);
+        const ne = nameError(myName, old && old.peerName); // re-join: peer's name is known
+        if (ne) { nf.err.textContent = ne; nf.inp.focus(); return; }
+        if (old) { closeModal(); await setMyName(old, myName); openChat(code); return; }
+        lsSet('lastName', myName);
+        const r = { code, slot: 2, name: 'Room ' + fmtCode(code), created: Date.now(), myName };
         await dbPut('rooms', r);
         rooms.set(code, r);
         startRoom(r);
@@ -1572,8 +1695,9 @@
         if (f !== inp.value) inp.value = f;
         err.textContent = '';
       };
+      nf.inp.onkeydown = (e) => { if (e.key === 'Enter') go(); };
       row.append(cancel, ok);
-      b.append(inp, err, row);
+      b.append(row);
     });
   }
 
@@ -1639,7 +1763,7 @@
     openModal((b) => {
       b.appendChild(el('h3', null, 'Settings'));
       const sec1 = el('div', 'set-section');
-      sec1.appendChild(el('label', null, 'Device name (shown to the other device)'));
+      sec1.appendChild(el('label', null, 'Default name (used in rooms where you haven’t picked one)'));
       const name = el('input');
       name.value = settings.deviceName;
       name.maxLength = 40;
@@ -1664,6 +1788,15 @@
         seg.appendChild(o);
       }
       sec2.appendChild(seg);
+
+      const sec3 = el('div', 'set-section');
+      sec3.appendChild(el('label', null, 'Website'));
+      const site = el('button', 'btn site-btn');
+      site.type = 'button';
+      site.innerHTML = svg('external', 16);
+      site.appendChild(el('span', null, 'Open the Linoa website'));
+      site.onclick = openSite;
+      sec3.append(site, el('p', 'hint', 'Download Linoa for PC and Android, and see what’s new.'));
 
       const adv = el('details', 'set-adv');
       if (settings.turnJson.trim()) adv.open = true;
@@ -1701,8 +1834,16 @@
         else if (nameChanged) for (const c of conns.values()) if (c.conn) c.sendHello(true);
       };
       row.append(cancel, save);
-      b.append(sec1, sec2, adv, err, info, row);
+      b.append(sec1, sec2, sec3, adv, err, info, row);
     }, 'sheet');
+  }
+  // Opens the public website (downloads + changelog) in the system browser.
+  function openSite() {
+    const url = String(window.CHATROOM_UPDATE_URL || 'https://janznidaric911.github.io/chatroom/');
+    const api = window.electronAPI;
+    if (P.kind === 'electron' && api && api.openExternal) api.openExternal(url);
+    else if (P.kind === 'android') location.href = url; // Capacitor hands non-app hosts to the browser
+    else window.open(url, '_blank', 'noopener');
   }
   function restartAll() {
     for (const [code, c] of conns) { c.stop(); conns.delete(code); }
@@ -1750,6 +1891,7 @@
     scrollBottom(true);
     requestAnimationFrame(() => box.classList.remove('loading'));
     if (!isTouch) $('#input').focus();
+    askOldRoomName(r);
   }
   function emptyChatEl() {
     const e = el('div', 'empty-chat');
@@ -1846,6 +1988,17 @@
     row.classList.toggle('grp-last', !sameGroup(m, ui.msgs[i + 1]));
   }
   function regroup() { for (let i = 0; i < ui.msgs.length; i++) applyGroup(i); }
+  function setSender(row, name) {
+    let s = row.querySelector(':scope > .sender');
+    if (!s) { s = el('div', 'sender'); s.setAttribute('aria-hidden', 'true'); row.prepend(s); }
+    s.textContent = name || '';
+    row.classList.toggle('has-sender', !!name);
+  }
+  function updateSenderLabels() {
+    const r = rooms.get(current);
+    if (!r) return;
+    for (const row of document.querySelectorAll('#messages .inner .msg.theirs')) setSender(row, r.peerName);
+  }
 
   function appendMessage(m, prev, inner, animate) {
     inner = inner || $('#messages .inner');
@@ -1868,6 +2021,8 @@
     const mine = m.from === r.slot;
     const row = el('div', 'msg ' + (mine ? 'mine' : 'theirs'));
     row.dataset.id = m.id;
+    // sender name; CSS shows it only above the first bubble of a group (.grp-first)
+    if (!mine) setSender(row, r.peerName);
     const b = el('div', 'bubble');
     row.appendChild(b);
     const meta = buildMeta(m, mine);
@@ -2533,6 +2688,7 @@
       openMenu($('#btnSettings2'), [
         { icon: 'hash', label: 'Show code', fn: () => showCode(r, false) },
         { icon: 'pencil', label: 'Rename room', fn: () => renameRoom(r) },
+        { icon: 'user', label: 'Change my name', fn: () => changeMyName(r) },
         { icon: 'circle-check', label: 'Select messages', fn: () => enterSelect() },
         { icon: 'settings', label: 'Settings', fn: openSettings },
         { sep: true },
@@ -2573,7 +2729,7 @@
       if (current && e.dataTransfer.files.length) sendFiles([...e.dataTransfer.files]);
     });
 
-    $('#modal').addEventListener('mousedown', (e) => { if (e.target.id === 'modal') closeModal(); });
+    $('#modal').addEventListener('mousedown', (e) => { if (e.target.id === 'modal') dismissModal(); });
     $('#viewerClose').onclick = closeViewer;
     $('#viewer').addEventListener('click', (e) => { if (e.target.id === 'viewer' || e.target.id === 'viewerImg') closeViewer(); });
     $('#viewerSave').onclick = (e) => { e.stopPropagation(); if (viewerMsg) saveMsg(viewerMsg.m, viewerMsg.blob); };
@@ -2581,7 +2737,7 @@
       if (e.key !== 'Escape') return;
       if ($('#menu')) closeMenu();
       else if (!$('#viewer').hidden) closeViewer();
-      else if (!$('#modal').hidden) closeModal();
+      else if (!$('#modal').hidden) dismissModal();
       else exitSelect();
     });
     window.addEventListener('resize', () => { closeMenu(); updateFab(); });
@@ -2615,7 +2771,7 @@
       App.addListener('backButton', () => {
         if ($('#menu')) closeMenu();
         else if (!$('#viewer').hidden) closeViewer();
-        else if (!$('#modal').hidden) closeModal();
+        else if (!$('#modal').hidden) dismissModal();
         else if (ui.select) exitSelect();
         else if (current) goHome();
         else if (App.exitApp) App.exitApp();

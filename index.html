@@ -257,6 +257,8 @@
         (changes || []).forEach(function (c) { ul.appendChild(el('li', '', String(c))); });
         return ul;
       }
+      // display name ("6.01"); entries without one show the integer build. Sorting stays on the integer.
+      function vn(e) { return 'v' + ((e && e.name) || (e && e.version)); }
       var chevron = '<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/></svg>';
 
       var manifestP = getJSON('update/manifest.json').catch(function () { return null; });
@@ -269,14 +271,15 @@
         var m = r[0], log = r[1] || [];
         var latestVer = m && m.version ? m.version : (log[0] && log[0].version);
         var entry = log.filter(function (e) { return e.version === latestVer; })[0];
+        var latestName = m && m.version ? vn(m) : vn(entry || { version: latestVer });
         var date = entry ? fmtDate(entry.date) : (m && m.published ? fmtDate(String(m.published).slice(0, 10)) : '');
         if (latestVer) {
           $('pill').classList.remove('off');
           $('pillText').innerHTML = '';
           $('pillText').appendChild(el('span', '', 'Latest version '));
-          $('pillText').appendChild(el('b', '', 'v' + latestVer));
+          $('pillText').appendChild(el('b', '', latestName));
           if (date) $('pillText').appendChild(el('span', '', ' · ' + date));
-          $('footVer').textContent = 'v' + latestVer;
+          $('footVer').textContent = latestName;
         } else {
           $('pillText').textContent = 'Version info unavailable';
         }
@@ -287,7 +290,7 @@
         if (!log.length) {
           if (m && m.notes) {
             var card0 = el('div', 'latest'), in0 = el('div');
-            var b0 = el('div', 'badge'); b0.appendChild(el('span', 'tag', 'Latest update')); b0.appendChild(el('span', '', 'v' + m.version));
+            var b0 = el('div', 'badge'); b0.appendChild(el('span', 'tag', 'Latest update')); b0.appendChild(el('span', '', vn(m)));
             in0.appendChild(b0); in0.appendChild(el('p', '', m.notes)); card0.appendChild(in0); box.appendChild(card0);
           } else {
             box.appendChild(el('p', 'empty', 'Release notes are not available right now.'));
@@ -298,9 +301,9 @@
         var card = el('article', 'latest'), inner = el('div');
         var badge = el('div', 'badge');
         badge.appendChild(el('span', 'tag', 'Latest update'));
-        badge.appendChild(el('span', '', 'v' + first.version + (first.date ? ' · ' + fmtDate(first.date) : '')));
+        badge.appendChild(el('span', '', vn(first) + (first.date ? ' · ' + fmtDate(first.date) : '')));
         inner.appendChild(badge);
-        inner.appendChild(el('h3', '', first.title || ('Version ' + first.version)));
+        inner.appendChild(el('h3', '', first.title || ('Version ' + vn(first).slice(1))));
         inner.appendChild(changeList(first.changes));
         card.appendChild(inner); box.appendChild(card);
 
@@ -308,8 +311,8 @@
           var older = el('div', 'older');
           log.slice(1).forEach(function (e) {
             var d = el('details'), s = el('summary');
-            s.appendChild(el('span', 'v', 'v' + e.version));
-            s.appendChild(el('span', 't', e.title || ('Version ' + e.version)));
+            s.appendChild(el('span', 'v', vn(e)));
+            s.appendChild(el('span', 't', e.title || ('Version ' + vn(e).slice(1))));
             if (e.date) s.appendChild(el('span', 'd', fmtDate(e.date)));
             s.insertAdjacentHTML('beforeend', chevron);
             d.appendChild(s); d.appendChild(changeList(e.changes));

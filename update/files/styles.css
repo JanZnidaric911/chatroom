@@ -369,6 +369,14 @@ svg.ic.inline { display: inline-block; vertical-align: -2px; }
 .msg.mine:not(.grp-first) .bubble { border-top-right-radius: var(--r-tight); }
 .msg.theirs .bubble { border-bottom-left-radius: var(--r-tight); }
 .msg.theirs:not(.grp-first) .bubble { border-top-left-radius: var(--r-tight); }
+/* sender name above the first bubble of each incoming group */
+.msg > .sender { display: none; }
+.msg.theirs.grp-first.has-sender { margin-top: 28px; }
+.msg.theirs.grp-first.has-sender > .sender {
+  display: block; position: absolute; left: 12px; bottom: calc(100% + 3px); max-width: min(70%, 520px);
+  font-size: 12px; font-weight: 600; line-height: 1.2; color: var(--accent); letter-spacing: .01em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; user-select: none;
+}
 .bubble.pressing { transform: scale(.97); filter: brightness(.95); }
 
 .text { white-space: pre-wrap; font-size: 15px; line-height: 1.4; }
@@ -671,6 +679,9 @@ svg.ic.inline { display: inline-block; vertical-align: -2px; }
 .hint { font-size: 12px !important; color: var(--muted) !important; }
 .hint code { background: var(--surface-2); padding: 1px 4px; border-radius: 4px; }
 .set-section { margin-top: 6px; }
+.site-btn { width: 100%; }
+.site-btn svg { color: var(--accent); }
+.set-section .site-btn + .hint { margin-top: 6px; }
 .segmented { display: flex; gap: 4px; padding: 4px; background: var(--surface-2); border-radius: 13px; border: 1px solid var(--line); }
 .seg {
   flex: 1; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 8px 6px;
@@ -717,8 +728,13 @@ svg.ic.inline { display: inline-block; vertical-align: -2px; }
   padding: 10px 12px 10px 14px; border-radius: 14px; font-size: 14px; max-width: min(520px, calc(100% - 32px));
   display: flex; align-items: center; gap: 10px; overflow-wrap: anywhere;
 }
+/* In a chat the toast sits just below the header, so it never covers the save buttons of the newest
+   messages; clicks pass through it except on its own button. */
+body.in-chat .toast { bottom: auto; top: calc(72px + var(--sat)); pointer-events: none; }
+body.in-chat .toast .btn { pointer-events: auto; }
 @media (min-width: 900px) { body.in-chat .toast { left: calc(50% + 180px); max-width: min(520px, calc(100% - 392px)); } }
 .toast.in { animation: toastIn .24s cubic-bezier(.2, .9, .3, 1.2) both; }
+body.in-chat .toast.in { animation-name: toastInTop; }
 .toast .toast-ic { color: var(--accent); }
 .toast-msg { flex: 1; min-width: 0; }
 .toast .btn { flex: none; }
@@ -733,6 +749,7 @@ svg.ic.inline { display: inline-block; vertical-align: -2px; }
 @keyframes sheetUp { from { transform: translateY(100%); } to { transform: none; } }
 @keyframes zoomIn { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
 @keyframes toastIn { from { opacity: 0; transform: translate(-50%, 10px) scale(.96); } to { opacity: 1; transform: translate(-50%, 0); } }
+@keyframes toastInTop { from { opacity: 0; transform: translate(-50%, -10px) scale(.96); } to { opacity: 1; transform: translate(-50%, 0); } }
 @keyframes dot { 0%, 60%, 100% { transform: translateY(0); opacity: .45; } 30% { transform: translateY(-4px); opacity: 1; } }
 @keyframes shimmer { from { background-position: 150% 0; } to { background-position: -50% 0; } }
 @keyframes spin { to { transform: rotate(360deg); } }
