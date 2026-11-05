@@ -530,7 +530,7 @@
     if (just) {
       ls.del(LS_JUST);
       suppressLaunchUrl = true;
-      if (Number(just) === CUR) { toast('ChatRoom updated to v' + CUR); ls.del(LS_AVAIL); updateBadge(); }
+      if (Number(just) === CUR) { toast('ChatRoom updated to v' + CUR); ls.del(LS_AVAIL); ls.del('chatroom.update.tries'); updateBadge(); }
     }
 
     if (kind === 'android') {
@@ -553,9 +553,44 @@
     }
 
     if (CONFIGURED) {
-      const last = Number(ls.get(LS_LAST)) || 0;
-      if (Date.now() - last > DAY) setTimeout(() => { if (!state.checking && !state.busy) runCheck(true); }, 4000);
+      // Check on every start, and on Android also whenever the app comes back to the foreground.
+      setTimeout(autoUpdate, 1500);
+      if (kind === 'android') {
+        const App = plug('App');
+        if (App) try { App.addListener('appStateChange', (s) => { if (s && s.isActive) autoUpdate(); }); } catch (e) { /* ignore */ }
+      }
     }
+  }
+
+  // Automatic update: check in the background; if a newer version exists, download + install it
+  // right away and show the progress popup. Gives up on a version after 3 failed attempts so a broken
+  // release can't trap the app in a loop.
+  const LS_TRIES = 'chatroom.update.tries';
+  async function autoUpdate() {
+    if (state.checking || state.busy || kind === 'browser') return;
+    state.checking = true;
+    let m;
+    try { m = await fetchManifest(); } catch (e) { return; } finally { state.checking = false; }
+    state.manifest = m;
+    if (!(m.version > CUR)) { ls.del(LS_AVAIL); ls.del(LS_TRIES); updateBadge(); return; }
+    ls.set(LS_AVAIL, JSON.stringify({ version: m.version, notes: m.notes || '' }));
+    updateBadge();
+    const u = ensureUi();
+    const nv = await nativeVersion();
+    if (nv < neededNative(m)) {
+      // Can't be applied in place: tell the user once per version.
+      if (ls.get('chatroom.update.nativeToldFor') === String(m.version)) return;
+      ls.set('chatroom.update.nativeToldFor', String(m.version));
+      showPanel(); await presentManifest(m);
+      return;
+    }
+    let tries = {}; try { tries = JSON.parse(ls.get(LS_TRIES) || '{}'); } catch (e) { tries = {}; }
+    const n = Number(tries[m.version]) || 0;
+    if (n >= 3) return;
+    tries = {}; tries[m.version] = n + 1; ls.set(LS_TRIES, JSON.stringify(tries));
+    showPanel();
+    u.notes.hidden = !m.notes; u.notes.textContent = m.notes || '';
+    await doInstall(m);
   }
 
   window.ChatUpdater = {

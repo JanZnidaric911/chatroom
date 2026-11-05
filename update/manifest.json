@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "files": [
     {
       "path": "app.js",
@@ -28,8 +28,8 @@
     },
     {
       "path": "updater.js",
-      "sha256": "408047c7f11ef2e3e6187b2b502a9bc9be636ef883ef569f89c9016ca475fdef",
-      "size": 26513
+      "sha256": "411a9e51148a38abb7cb569e007c904c3112ee133d17778951a9e79aad652e08",
+      "size": 28204
     },
     {
       "path": "vendor/peerjs.min.js",
@@ -38,8 +38,8 @@
     },
     {
       "path": "version.js",
-      "sha256": "602f5c4a2ee2c9c37ad9baff94e426655bde4329991b9a82fa3e496fdece477c",
-      "size": 29
+      "sha256": "3a8dff9c56f1b70e933f7f090c26b15405aad1316d36bd097c0e87640dfd7fbb",
+      "size": 30
     }
   ],
   "nativeMinVersion": {
@@ -48,6 +48,6 @@
   },
   "exeUrl": "https://github.com/JanZnidaric911/chatroom/releases/latest/download/ChatRoom-Setup.exe",
   "apkUrl": "https://github.com/JanZnidaric911/chatroom/releases/latest/download/ChatRoom.apk",
-  "notes": "",
-  "published": "2026-11-05T12:52:46.848Z"
+  "notes": "The app now updates itself automatically when you open it. Delete messages for everyone or just for you.",
+  "published": "2026-11-05T13:04:48.910Z"
 }
